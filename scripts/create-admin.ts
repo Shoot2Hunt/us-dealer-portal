@@ -3,9 +3,12 @@
  *   npm run create-admin -- you@example.com "Your Name"
  */
 import { createHash, randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
 import { neon } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
 import { users } from "../src/lib/db/schema";
+
+if (existsSync(".env.local")) process.loadEnvFile(".env.local");
 
 const [email, name = "Admin"] = process.argv.slice(2);
 if (!email || !process.env.DATABASE_URL) {
