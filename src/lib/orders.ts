@@ -1,0 +1,242 @@
+import "server-only";
+import { and, eq, inArray } from "drizzle-orm";
+import { z } from "zod";
+import {
+  db,
+  inventory,
+  orderLines,
+  orders,
+  payments,
+  storeOrders,
+  type Address,
+  type User,
+} from "@/lib/db";
+import { authorizeCard, captureAuthorized, debitBank, voidTransaction, type OpaqueData } from "@/lib/authnet";
+import { licenseProblems } from "@/lib/auth/session";
+import { loadCatalogContext, shippingBlock, toCatalogItem } from "@/lib/catalog";
+import { getPaymentSettings } from "@/sanity/content";
+import { refreshProduct } from "@/lib/woo/sync";
+import { createWooOrder, setWooOrderStatus } from "@/lib/woo/orders";
+import { isStoreKey, storeName, type StoreKey } from "@/lib/woo/stores";
+import { appUrl, sendEmail } from "@/lib/email";
+
+const addressSchema = z.object({
+  firstName: z.string().trim().min(1),
+  lastName: z.string().trim().min(1),
+  company: z.string().trim().optional(),
+  address1: z.string().trim().min(1),
+  address2: z.string().trim().optional(),
+  city: z.string().trim().min(1),
+  state: z.string().trim().length(2),
+  postcode: z.string().trim().min(5),
+  phone: z.string().trim().optional(),
+});
+
+const opaque = z.object({ dataDescriptor: z.string(), dataValue: z.string() });
+
+export const checkoutSchema = z.object({
+  lines: z.array(z.object({ id: z.number().int(), quantity: z.number().int().min(1) })).min(1),
+  shipping: addressSchema,
+  poNumber: z.string().trim().max(50).optional(),
+  notes: z.string().trim().max(1000).optional(),
+  payments: z
+    .array(
+      z.object({
+        method: z.enum(["card", "ach", "check"]),
+        amount: z.number().positive(),
+        token: opaque.optional(),
+      }),
+    )
+    .min(1),
+});
+
+export type CheckoutInput = z.infer<typeof checkoutSchema>;
+export type CheckoutResult = { ok: true; orderId: string } | { ok: false; error: string };
+
+const cents = (n: number) => Math.round(n * 100);
+const dollars = (c: number) => (c / 100).toFixed(2);
+
+export async function placeOrder(user: User, input: CheckoutInput): Promise<CheckoutResult> {
+  const problems = licenseProblems(user);
+  if (problems.length) return { ok: false, error: problems.join(" ") };
+
+  // 1. Re-check stock live against each store before taking money.
+  const ids = input.lines.map((l) => l.id);
+  const before = await db().select().from(inventory).where(inArray(inventory.id, ids));
+  if (before.length !== new Set(ids).size) return { ok: false, error: "Some items are no longer available. Refresh your cart." };
+  const products = new Map(before.map((r) => [`${r.store}:${r.productId}`, r]));
+  for (const r of products.values()) {
+    if (isStoreKey(r.store)) await refreshProduct(r.store, r.productId);
+  }
+  const rows = await db().select().from(inventory).where(inArray(inventory.id, ids));
+  const ctx = await loadCatalogContext();
+
+  // 2. Price and validate every line.
+  type Line = { store: StoreKey; productId: number; variationId: number; sku: string | null; name: string; quantity: number; unitCents: number };
+  const lines: Line[] = [];
+  for (const l of input.lines) {
+    const row = rows.find((r) => r.id === l.id);
+    // Rows are keyed by product+variation, so a re-synced item keeps its id.
+    if (!row || !isStoreKey(row.store)) return { ok: false, error: "An item in your cart was removed from the store." };
+    const item = toCatalogItem(row, user, ctx);
+    if (!item) return { ok: false, error: "An item in your cart is no longer offered to dealers." };
+    if (user.allowedBrands?.length && !user.allowedBrands.includes(item.store)) return { ok: false, error: `${item.name} isn't available on your account.` };
+    if (item.restriction) return { ok: false, error: `${item.name}: ${item.restriction}.` };
+    if (item.dealerPrice === null) return { ok: false, error: `${item.name} has no dealer price yet.` };
+    if (l.quantity < item.minQuantity) return { ok: false, error: `${item.name} has a minimum of ${item.minQuantity}.` };
+    if (!item.inStock) return { ok: false, error: `${item.name} just sold out.` };
+    if (item.stockQuantity !== null && item.stockStatus !== "onbackorder" && l.quantity > item.stockQuantity) {
+      return { ok: false, error: `Only ${item.stockQuantity} of ${item.name} left.` };
+    }
+    const blocked = shippingBlock(item, input.shipping.state, ctx);
+    if (blocked) return { ok: false, error: blocked };
+    lines.push({ store: row.store, productId: row.productId, variationId: row.variationId, sku: row.sku, name: row.name, quantity: l.quantity, unitCents: cents(item.dealerPrice) });
+  }
+  const totalCents = lines.reduce((s, l) => s + l.unitCents * l.quantity, 0);
+
+  // 3. Validate the payment plan against the admin's payment settings.
+  const settings = await getPaymentSettings();
+  const parts = input.payments;
+  if (parts.length > 1 && !settings.allowSplit) return { ok: false, error: "Split payments are turned off." };
+  if (parts.length > settings.maxSplitParts) return { ok: false, error: `Use at most ${settings.maxSplitParts} payment methods.` };
+  for (const p of parts) {
+    if (p.method === "card" && !settings.enableCard) return { ok: false, error: "Card payments are turned off." };
+    if (p.method === "ach" && !settings.enableAch) return { ok: false, error: "ACH payments are turned off." };
+    if (p.method === "check" && !settings.enableCheck) return { ok: false, error: "Check payments are turned off." };
+    if (p.method !== "check" && !p.token) return { ok: false, error: "Payment details are missing." };
+  }
+  if (parts.reduce((s, p) => s + cents(p.amount), 0) !== totalCents) {
+    return { ok: false, error: `Payments must add up to the order total of $${dollars(totalCents)}.` };
+  }
+
+  // 4. Create the portal order.
+  const address: Address = input.shipping;
+  const [order] = await db()
+    .insert(orders)
+    .values({ userId: user.id, status: "awaiting_payment", total: dollars(totalCents), shippingAddress: address, poNumber: input.poNumber, notes: input.notes })
+    .returning();
+  await db().insert(orderLines).values(
+    lines.map((l) => ({ orderId: order.id, store: l.store, productId: l.productId, variationId: l.variationId, sku: l.sku, name: l.name, quantity: l.quantity, unitPrice: dollars(l.unitCents) })),
+  );
+
+  // 5. Take payment. Cards are authorized first, then eChecks debited, then cards captured,
+  //    so any decline can be rolled back before the dealer is charged.
+  const txCtx = { invoiceNumber: `DP${order.number}`, description: `Dealer portal order #${order.number}`, email: user.email };
+  type Done = { method: "card" | "ach" | "check"; amount: number; transId?: string; last4?: string; status: (typeof payments.$inferInsert)["status"]; error?: string };
+  const done: Done[] = [];
+  const rollback = async () => {
+    // Void works on anything not yet settled, including captured cards.
+    for (const d of done) if (d.transId && ["authorized", "captured", "pending_settlement"].includes(d.status)) await voidTransaction(d.transId);
+  };
+  const fail = async (error: string, declined: Done) => {
+    await rollback();
+    await db().insert(payments).values(
+      [...done.map((d) => ({ ...d, status: d.transId ? ("voided" as const) : d.status })), declined].map((d) => ({
+        orderId: order.id, method: d.method, amount: d.amount.toFixed(2), status: d.status, transId: d.transId, last4: d.last4, error: d.error,
+      })),
+    );
+    await db().update(orders).set({ status: "failed" }).where(eq(orders.id, order.id));
+    return { ok: false as const, error };
+  };
+
+  for (const p of parts.filter((x) => x.method === "card")) {
+    const r = await authorizeCard(p.amount, p.token as OpaqueData, txCtx, order.id.replace(/-/g, ""));
+    if (!r.ok) return fail(`Card declined: ${r.error}`, { method: "card", amount: p.amount, status: "declined", transId: r.transId, error: r.error });
+    done.push({ method: "card", amount: p.amount, transId: r.transId, last4: r.last4, status: "authorized", error: r.heldForReview ? "Held for review in Authorize.net" : undefined });
+  }
+  for (const p of parts.filter((x) => x.method === "ach")) {
+    const r = await debitBank(p.amount, p.token as OpaqueData, txCtx, order.id.replace(/-/g, ""));
+    if (!r.ok) return fail(`Bank payment declined: ${r.error}`, { method: "ach", amount: p.amount, status: "declined", transId: r.transId, error: r.error });
+    done.push({ method: "ach", amount: p.amount, transId: r.transId, last4: r.last4, status: "pending_settlement" });
+  }
+  for (const d of done.filter((x) => x.method === "card" && !x.error)) {
+    const r = await captureAuthorized(d.transId!, d.amount);
+    if (!r.ok) return fail(`Card capture failed: ${r.error}`, { ...d, status: "declined", error: r.error });
+    d.status = "captured";
+  }
+  for (const p of parts.filter((x) => x.method === "check")) done.push({ method: "check", amount: p.amount, status: "awaiting_check" });
+
+  await db().insert(payments).values(
+    done.map((d) => ({ orderId: order.id, method: d.method, amount: d.amount.toFixed(2), status: d.status, transId: d.transId, last4: d.last4, error: d.error })),
+  );
+  const fullyPaid = done.every((d) => d.status === "captured");
+  await db().update(orders).set({ status: fullyPaid ? "processing" : "awaiting_payment" }).where(eq(orders.id, order.id));
+
+  // 6. One WooCommerce order per brand. Payment is already taken, so failures here are
+  //    recorded for an admin to retry rather than shown as a failed checkout.
+  const summary = done.map((d) => `${d.method === "ach" ? "ACH" : d.method === "card" ? "Card" : "Check"} $${d.amount.toFixed(2)}${d.last4 ? ` (…${d.last4})` : ""}`).join(" + ");
+  const byStore = Map.groupBy(lines, (l) => l.store);
+  for (const [store, storeLines] of byStore) {
+    const subtotal = dollars(storeLines.reduce((s, l) => s + l.unitCents * l.quantity, 0));
+    try {
+      const wooOrder = await createWooOrder({
+        storeKey: store, user, address, portalOrderId: order.id, portalOrderNumber: order.number, poNumber: input.poNumber, paid: fullyPaid,
+        paymentSummary: fullyPaid ? summary : `${summary} — waiting for payment to clear`,
+        lines: storeLines.map((l) => ({ productId: l.productId, variationId: l.variationId, quantity: l.quantity, unitPrice: dollars(l.unitCents) })),
+      });
+      await db().insert(storeOrders).values({ orderId: order.id, store, subtotal, wooOrderId: wooOrder.id, wooStatus: wooOrder.status });
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      await db().insert(storeOrders).values({ orderId: order.id, store, subtotal, error });
+      await sendEmail({ to: process.env.ADMIN_NOTIFY_EMAIL ?? "", subject: `Action needed: order #${order.number} didn't reach ${storeName(store)}`, text: `${error}\n\n${appUrl(`/admin/orders/${order.id}`)}` });
+    }
+  }
+
+  await notifyOrderPlaced(user, order.id, order.number, dollars(totalCents), [...byStore.keys()], fullyPaid, ctx.brands);
+  return { ok: true, orderId: order.id };
+}
+
+async function notifyOrderPlaced(user: User, orderId: string, number: number, total: string, stores: string[], paid: boolean, brands: { storeKey: string; notificationEmails?: string[] }[]) {
+  const link = appUrl(`/orders/${orderId}`);
+  await sendEmail({
+    to: user.email,
+    subject: `Order #${number} received`,
+    text: `Thanks — we received order #${number} for $${total}.${paid ? "" : " It will ship once your payment clears."}\n\n${link}`,
+  });
+  const brandEmails = brands.filter((b) => stores.includes(b.storeKey)).flatMap((b) => b.notificationEmails ?? []);
+  await sendEmail({ to: brandEmails, subject: `New dealer order #${number} from ${user.company ?? user.name}`, text: appUrl(`/admin/orders/${orderId}`) });
+}
+
+/** When every payment on an order has cleared, release the brands' Woo orders to Processing. */
+export async function releaseIfPaid(orderId: string) {
+  const ps = await db().select().from(payments).where(eq(payments.orderId, orderId));
+  const live = ps.filter((p) => !["declined", "voided"].includes(p.status));
+  if (!live.length || !live.every((p) => ["captured", "settled", "received"].includes(p.status))) return false;
+  const [order] = await db().select().from(orders).where(eq(orders.id, orderId));
+  if (!order || order.status !== "awaiting_payment") return false;
+  await db().update(orders).set({ status: "processing" }).where(eq(orders.id, orderId));
+  const sos = await db().select().from(storeOrders).where(eq(storeOrders.orderId, orderId));
+  for (const so of sos) {
+    if (so.wooOrderId && isStoreKey(so.store)) {
+      await setWooOrderStatus(so.store, so.wooOrderId, "processing", "Dealer portal: payment cleared — OK to ship.");
+      await db().update(storeOrders).set({ wooStatus: "processing", updatedAt: new Date() }).where(eq(storeOrders.id, so.id));
+    }
+  }
+  return true;
+}
+
+/** An eCheck came back (insufficient funds, etc.). Hold the order and tell the admins. */
+export async function markPaymentProblem(orderId: string, paymentId: number, reason: string) {
+  await db().update(payments).set({ status: "returned", error: reason, updatedAt: new Date() }).where(eq(payments.id, paymentId));
+  const [order] = await db().update(orders).set({ status: "payment_problem" }).where(eq(orders.id, orderId)).returning();
+  const sos = await db().select().from(storeOrders).where(eq(storeOrders.orderId, orderId));
+  for (const so of sos) {
+    if (so.wooOrderId && isStoreKey(so.store) && so.wooStatus !== "completed") {
+      await setWooOrderStatus(so.store, so.wooOrderId, "on-hold", `Dealer portal: payment problem — ${reason}. Do not ship.`);
+      await db().update(storeOrders).set({ wooStatus: "on-hold", updatedAt: new Date() }).where(eq(storeOrders.id, so.id));
+    }
+  }
+  await sendEmail({ to: process.env.ADMIN_NOTIFY_EMAIL ?? "", subject: `Payment problem on order #${order?.number}`, text: `${reason}\n\n${appUrl(`/admin/orders/${orderId}`)}` });
+}
+
+export async function getOrderForUser(user: User, orderId: string) {
+  const where = user.role === "dealer" ? and(eq(orders.id, orderId), eq(orders.userId, user.id)) : eq(orders.id, orderId);
+  const [order] = await db().select().from(orders).where(where);
+  if (!order) return null;
+  const [lines, sos, ps] = await Promise.all([
+    db().select().from(orderLines).where(eq(orderLines.orderId, orderId)),
+    db().select().from(storeOrders).where(eq(storeOrders.orderId, orderId)),
+    db().select().from(payments).where(eq(payments.orderId, orderId)),
+  ]);
+  return { order, lines, storeOrders: sos, payments: ps };
+}

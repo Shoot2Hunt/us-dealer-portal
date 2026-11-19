@@ -1,0 +1,77 @@
+import { asc } from "drizzle-orm";
+import { db, users } from "@/lib/db";
+import { requireAdmin } from "@/lib/auth/session";
+import { STORES, storeName } from "@/lib/woo/stores";
+import { createAdmin, resendSetupLink, updateDealer } from "../actions";
+
+export default async function DealersPage() {
+  const admin = await requireAdmin();
+  const all = await db().select().from(users).orderBy(asc(users.company), asc(users.name));
+  const dealers = all.filter((u) => u.role === "dealer");
+  const admins = all.filter((u) => u.role !== "dealer");
+  return (
+    <div className="space-y-8">
+      <section className="space-y-3">
+        <h1 className="text-2xl font-semibold tracking-tight">Dealers</h1>
+        {!dealers.length && <p className="text-muted">No dealers yet.</p>}
+        {dealers.map((d) => (
+          <form key={d.id} action={updateDealer} className="card grid gap-3 text-sm md:grid-cols-[1.4fr_1fr_1fr_auto]">
+            <input type="hidden" name="id" value={d.id} />
+            <div>
+              <p className="font-semibold">{d.company ?? d.name}</p>
+              <p className="text-muted">{d.name} · {d.email}</p>
+              <p className="text-muted">FFL {d.fflNumber ?? "—"}{!d.passwordHash && " · hasn't set a password yet"}</p>
+            </div>
+            <div className="space-y-2">
+              <label className="block">FFL expires <input type="date" name="fflExpires" defaultValue={d.fflExpires ?? ""} className="input mt-1" /></label>
+              <label className="flex items-center gap-2"><input type="checkbox" name="sotVerified" defaultChecked={d.sotVerified} /> SOT verified</label>
+              <label className="block">SOT expires <input type="date" name="sotExpires" defaultValue={d.sotExpires ?? ""} className="input mt-1" /></label>
+            </div>
+            <div className="space-y-1">
+              <p className="font-medium">Brands (none checked = all)</p>
+              {STORES.map((s) => (
+                <label key={s.key} className="flex items-center gap-2">
+                  <input type="checkbox" name="allowedBrands" value={s.key} defaultChecked={d.allowedBrands?.includes(s.key)} /> {s.name}
+                </label>
+              ))}
+            </div>
+            <div className="flex flex-col gap-2">
+              <select name="status" defaultValue={d.status} className="input">
+                <option value="active">Active</option>
+                <option value="suspended">Suspended</option>
+              </select>
+              <button className="btn">Save</button>
+              <button formAction={resendSetupLink} className="btn-ghost">Send password link</button>
+            </div>
+          </form>
+        ))}
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-xl font-semibold">Admins</h2>
+        <ul className="card divide-y divide-line text-sm">
+          {admins.map((a) => (
+            <li key={a.id} className="flex justify-between py-2">
+              <span>{a.name} · {a.email}</span>
+              <span className="text-muted">{a.role === "super_admin" ? "Super admin" : `Brand admin · ${storeName(a.brandSlug ?? "")}`}</span>
+            </li>
+          ))}
+        </ul>
+        {admin.role === "super_admin" && (
+          <form action={createAdmin} className="card grid gap-3 text-sm md:grid-cols-5">
+            <input name="name" placeholder="Name" className="input" required />
+            <input name="email" type="email" placeholder="Email" className="input" required />
+            <select name="role" className="input" defaultValue="brand_admin">
+              <option value="brand_admin">Brand admin</option>
+              <option value="super_admin">Super admin</option>
+            </select>
+            <select name="brandSlug" className="input">
+              {STORES.map((s) => <option key={s.key} value={s.key}>{s.name}</option>)}
+            </select>
+            <button className="btn">Add admin</button>
+          </form>
+        )}
+      </section>
+    </div>
+  );
+}

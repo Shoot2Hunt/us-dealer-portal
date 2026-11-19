@@ -1,0 +1,187 @@
+import {
+  boolean,
+  date,
+  integer,
+  jsonb,
+  numeric,
+  pgEnum,
+  pgTable,
+  serial,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
+
+export const roleEnum = pgEnum("role", ["dealer", "brand_admin", "super_admin"]);
+export const userStatusEnum = pgEnum("user_status", ["active", "suspended"]);
+export const requestStatusEnum = pgEnum("request_status", ["pending", "approved", "denied"]);
+export const orderStatusEnum = pgEnum("order_status", [
+  "processing", // fully paid, sent to the brands
+  "awaiting_payment", // check or eCheck not yet cleared; Woo orders On hold
+  "payment_problem", // eCheck returned, etc.
+  "failed",
+  "cancelled",
+]);
+export const paymentMethodEnum = pgEnum("payment_method", ["card", "ach", "check"]);
+export const paymentStatusEnum = pgEnum("payment_status", [
+  "authorized", // card, not yet captured
+  "captured", // card, done
+  "pending_settlement", // eCheck submitted, waiting to settle
+  "settled", // eCheck settled
+  "awaiting_check",
+  "received", // check received
+  "declined",
+  "voided",
+  "returned", // eCheck returned
+]);
+
+export type Address = {
+  firstName: string;
+  lastName: string;
+  company?: string;
+  address1: string;
+  address2?: string;
+  city: string;
+  state: string;
+  postcode: string;
+  phone?: string;
+};
+
+export const users = pgTable("users", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: text("email").notNull().unique(),
+  name: text("name").notNull(),
+  company: text("company"),
+  phone: text("phone"),
+  passwordHash: text("password_hash"),
+  role: roleEnum("role").notNull().default("dealer"),
+  /** For brand admins: the brand they manage. */
+  brandSlug: text("brand_slug"),
+  status: userStatusEnum("status").notNull().default("active"),
+  fflNumber: text("ffl_number"),
+  fflExpires: date("ffl_expires"),
+  sotVerified: boolean("sot_verified").notNull().default(false),
+  sotExpires: date("sot_expires"),
+  /** Null means the dealer can see and order from every brand. */
+  allowedBrands: text("allowed_brands").array(),
+  shippingAddress: jsonb("shipping_address").$type<Address>(),
+  setupTokenHash: text("setup_token_hash"),
+  setupTokenExpires: timestamp("setup_token_expires", { withTimezone: true }),
+  approvedBy: uuid("approved_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const accessRequests = pgTable("access_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  company: text("company").notNull(),
+  phone: text("phone"),
+  brandSlug: text("brand_slug").notNull(),
+  fflNumber: text("ffl_number").notNull(),
+  fflExpires: date("ffl_expires"),
+  hasSot: boolean("has_sot").notNull().default(false),
+  message: text("message"),
+  status: requestStatusEnum("status").notNull().default("pending"),
+  handledBy: uuid("handled_by"),
+  handledAt: timestamp("handled_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const inventory = pgTable(
+  "inventory",
+  {
+    id: serial("id").primaryKey(),
+    store: text("store").notNull(),
+    productId: integer("product_id").notNull(),
+    /** 0 for simple products. */
+    variationId: integer("variation_id").notNull().default(0),
+    parentName: text("parent_name"),
+    name: text("name").notNull(),
+    sku: text("sku"),
+    categories: text("categories").array().notNull().default([]),
+    manageStock: boolean("manage_stock").notNull().default(false),
+    stockQuantity: integer("stock_quantity"),
+    stockStatus: text("stock_status").notNull().default("instock"),
+    retailPrice: numeric("retail_price", { precision: 12, scale: 2 }),
+    imageUrl: text("image_url"),
+    permalink: text("permalink"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("inventory_store_product_variation").on(t.store, t.productId, t.variationId)],
+);
+
+export const syncState = pgTable("sync_state", {
+  store: text("store").primaryKey(),
+  lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+  lastWebhookAt: timestamp("last_webhook_at", { withTimezone: true }),
+  lastError: text("last_error"),
+});
+
+/** Links a portal dealer to their customer record in each WooCommerce store. */
+export const storeCustomers = pgTable(
+  "store_customers",
+  {
+    id: serial("id").primaryKey(),
+    userId: uuid("user_id").notNull(),
+    store: text("store").notNull(),
+    wooCustomerId: integer("woo_customer_id").notNull(),
+  },
+  (t) => [uniqueIndex("store_customers_user_store").on(t.userId, t.store)],
+);
+
+export const orders = pgTable("orders", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  number: serial("number").notNull(),
+  userId: uuid("user_id").notNull(),
+  status: orderStatusEnum("status").notNull(),
+  total: numeric("total", { precision: 12, scale: 2 }).notNull(),
+  shippingAddress: jsonb("shipping_address").$type<Address>().notNull(),
+  poNumber: text("po_number"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const orderLines = pgTable("order_lines", {
+  id: serial("id").primaryKey(),
+  orderId: uuid("order_id").notNull(),
+  store: text("store").notNull(),
+  productId: integer("product_id").notNull(),
+  variationId: integer("variation_id").notNull().default(0),
+  sku: text("sku"),
+  name: text("name").notNull(),
+  quantity: integer("quantity").notNull(),
+  unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).notNull(),
+});
+
+/** One WooCommerce order per brand per portal order. */
+export const storeOrders = pgTable("store_orders", {
+  id: serial("id").primaryKey(),
+  orderId: uuid("order_id").notNull(),
+  store: text("store").notNull(),
+  subtotal: numeric("subtotal", { precision: 12, scale: 2 }).notNull(),
+  wooOrderId: integer("woo_order_id"),
+  wooStatus: text("woo_status"),
+  tracking: text("tracking"),
+  error: text("error"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const payments = pgTable("payments", {
+  id: serial("id").primaryKey(),
+  orderId: uuid("order_id").notNull(),
+  method: paymentMethodEnum("method").notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  status: paymentStatusEnum("status").notNull(),
+  transId: text("trans_id"),
+  last4: text("last4"),
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type User = typeof users.$inferSelect;
+export type InventoryRow = typeof inventory.$inferSelect;
+export type Order = typeof orders.$inferSelect;
+export type Payment = typeof payments.$inferSelect;

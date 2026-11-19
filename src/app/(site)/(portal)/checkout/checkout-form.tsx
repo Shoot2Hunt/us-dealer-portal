@@ -1,0 +1,245 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import type { Address } from "@/lib/db/schema";
+import type { PaymentSettings } from "@/sanity/content";
+import { useCart, usd } from "@/components/cart";
+import { loadAcceptJs, tokenize, type BankInput, type CardInput } from "@/lib/accept";
+
+type Method = "card" | "ach" | "check";
+type Part = { key: number; method: Method; amount: string; card: CardInput; bank: BankInput };
+
+const METHOD_LABEL: Record<Method, string> = { card: "Credit card", ach: "ACH (bank account)", check: "Mailed check" };
+const emptyCard: CardInput = { cardNumber: "", month: "", year: "", cardCode: "", zip: "" };
+const emptyBank: BankInput = { routingNumber: "", accountNumber: "", nameOnAccount: "", accountType: "businessChecking" };
+
+export function CheckoutForm({
+  settings,
+  defaultAddress,
+  acceptJs,
+}: {
+  settings: PaymentSettings;
+  defaultAddress: Address;
+  acceptJs: { url: string; apiLoginId: string; clientKey: string };
+}) {
+  const cart = useCart();
+  const router = useRouter();
+  const methods = (["card", "ach", "check"] as Method[]).filter(
+    (m) => (m === "card" && settings.enableCard) || (m === "ach" && settings.enableAch) || (m === "check" && settings.enableCheck),
+  );
+  const canSplit = settings.allowSplit && settings.maxSplitParts > 1;
+
+  const [address, setAddress] = useState<Address>(defaultAddress);
+  const [poNumber, setPoNumber] = useState("");
+  const [mode, setMode] = useState<"single" | "split">("single");
+  const [parts, setParts] = useState<Part[]>([{ key: 1, method: methods[0] ?? "card", amount: "", card: emptyCard, bank: emptyBank }]);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const total = Math.round(cart.total * 100) / 100;
+  const allocated = useMemo(() => parts.reduce((s, p) => s + (Number(p.amount) || 0), 0), [parts]);
+  const remaining = Math.round((total - allocated) * 100) / 100;
+
+  const update = (key: number, patch: Partial<Part>) => setParts((ps) => ps.map((p) => (p.key === key ? { ...p, ...patch } : p)));
+
+  if (!cart.lines.length) {
+    return (
+      <div className="card text-center">
+        <p>Your cart is empty.</p>
+        <Link href="/inventory" className="btn mt-4">Browse inventory</Link>
+      </div>
+    );
+  }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const plan = mode === "single" ? [{ ...parts[0], amount: total.toFixed(2) }] : parts;
+    if (mode === "split" && Math.abs(remaining) > 0.001) {
+      setError(`The payments must add up to ${usd(total)}. ${remaining > 0 ? `${usd(remaining)} is left to assign.` : `They're over by ${usd(-remaining)}.`}`);
+      return;
+    }
+    setSubmitting(true);
+    try {
+      if (plan.some((p) => p.method !== "check")) await loadAcceptJs(acceptJs.url);
+      const payments = [];
+      for (const p of plan) {
+        const amount = Number(p.amount);
+        if (!(amount > 0)) throw new Error("Each payment needs an amount.");
+        if (p.method === "check") payments.push({ method: p.method, amount });
+        else {
+          const token = await tokenize(acceptJs, p.method === "card" ? { card: p.card } : { bank: p.bank });
+          payments.push({ method: p.method, amount, token });
+        }
+      }
+      const res = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lines: cart.lines.map((l) => ({ id: l.id, quantity: l.quantity })),
+          shipping: address,
+          poNumber: poNumber || undefined,
+          payments,
+        }),
+      });
+      const result = await res.json();
+      if (!result.ok) throw new Error(result.error ?? "Checkout failed.");
+      cart.clear();
+      router.push(`/orders/${result.orderId}?placed=1`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Checkout failed.");
+      setSubmitting(false);
+    }
+  }
+
+  const field = (key: keyof Address, label: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
+    <div>
+      <label className="label">{label}</label>
+      <input className="input" value={address[key] ?? ""} onChange={(e) => setAddress({ ...address, [key]: e.target.value })} {...props} />
+    </div>
+  );
+
+  return (
+    <form onSubmit={submit} className="grid gap-8 lg:grid-cols-[1fr_340px]">
+      <div className="space-y-6">
+        <h1 className="text-2xl font-semibold tracking-tight">Checkout</h1>
+
+        <section className="card space-y-4">
+          <h2 className="font-semibold">Ship to</h2>
+          <div className="grid grid-cols-2 gap-3">
+            {field("firstName", "First name", { required: true })}
+            {field("lastName", "Last name", { required: true })}
+          </div>
+          {field("company", "Business")}
+          {field("address1", "Address", { required: true })}
+          {field("address2", "Address line 2")}
+          <div className="grid grid-cols-3 gap-3">
+            {field("city", "City", { required: true })}
+            {field("state", "State", { required: true, maxLength: 2, placeholder: "ID" })}
+            {field("postcode", "ZIP", { required: true })}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {field("phone", "Phone")}
+            <div>
+              <label className="label">PO number (optional)</label>
+              <input className="input" value={poNumber} onChange={(e) => setPoNumber(e.target.value)} />
+            </div>
+          </div>
+        </section>
+
+        <section className="card space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold">Payment</h2>
+            {canSplit && (
+              <div className="flex rounded-md border border-line p-0.5 text-sm">
+                {(["single", "split"] as const).map((m) => (
+                  <button
+                    type="button"
+                    key={m}
+                    onClick={() => setMode(m)}
+                    className={`rounded px-3 py-1 ${mode === m ? "bg-ink text-white" : "text-muted"}`}
+                  >
+                    {m === "single" ? "Single payment" : "Split payment"}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {(mode === "single" ? parts.slice(0, 1) : parts).map((p, i) => (
+            <div key={p.key} className="space-y-3 rounded-md border border-line p-4">
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="min-w-[12rem] flex-1">
+                  <label className="label">{mode === "split" ? `Payment ${i + 1}` : "Pay with"}</label>
+                  <select className="input" value={p.method} onChange={(e) => update(p.key, { method: e.target.value as Method })}>
+                    {methods.map((m) => (
+                      <option key={m} value={m}>{METHOD_LABEL[m]}</option>
+                    ))}
+                  </select>
+                </div>
+                {mode === "split" && (
+                  <div className="w-36">
+                    <label className="label">Amount</label>
+                    <input className="input" inputMode="decimal" placeholder="0.00" value={p.amount} onChange={(e) => update(p.key, { amount: e.target.value })} required />
+                  </div>
+                )}
+                {mode === "split" && parts.length > 1 && (
+                  <button type="button" className="btn-ghost" onClick={() => setParts(parts.filter((x) => x.key !== p.key))}>Remove</button>
+                )}
+              </div>
+
+              {p.method === "card" && (
+                <div className="grid grid-cols-6 gap-3">
+                  <input className="input col-span-6" placeholder="Card number" autoComplete="cc-number" inputMode="numeric" value={p.card.cardNumber} onChange={(e) => update(p.key, { card: { ...p.card, cardNumber: e.target.value } })} required />
+                  <input className="input col-span-1" placeholder="MM" autoComplete="cc-exp-month" value={p.card.month} onChange={(e) => update(p.key, { card: { ...p.card, month: e.target.value } })} required />
+                  <input className="input col-span-1" placeholder="YY" autoComplete="cc-exp-year" value={p.card.year} onChange={(e) => update(p.key, { card: { ...p.card, year: e.target.value } })} required />
+                  <input className="input col-span-2" placeholder="CVV" autoComplete="cc-csc" value={p.card.cardCode} onChange={(e) => update(p.key, { card: { ...p.card, cardCode: e.target.value } })} required />
+                  <input className="input col-span-2" placeholder="Billing ZIP" autoComplete="postal-code" value={p.card.zip} onChange={(e) => update(p.key, { card: { ...p.card, zip: e.target.value } })} />
+                </div>
+              )}
+              {p.method === "ach" && (
+                <div className="grid grid-cols-2 gap-3">
+                  <input className="input col-span-2" placeholder="Name on account" value={p.bank.nameOnAccount} onChange={(e) => update(p.key, { bank: { ...p.bank, nameOnAccount: e.target.value } })} required />
+                  <input className="input" placeholder="Routing number" inputMode="numeric" value={p.bank.routingNumber} onChange={(e) => update(p.key, { bank: { ...p.bank, routingNumber: e.target.value } })} required />
+                  <input className="input" placeholder="Account number" inputMode="numeric" value={p.bank.accountNumber} onChange={(e) => update(p.key, { bank: { ...p.bank, accountNumber: e.target.value } })} required />
+                  <select className="input col-span-2" value={p.bank.accountType} onChange={(e) => update(p.key, { bank: { ...p.bank, accountType: e.target.value as BankInput["accountType"] } })}>
+                    <option value="businessChecking">Business checking</option>
+                    <option value="checking">Checking</option>
+                    <option value="savings">Savings</option>
+                  </select>
+                  <p className="col-span-2 text-xs text-muted">Orders paid by ACH ship once the payment settles, usually a few business days.</p>
+                </div>
+              )}
+              {p.method === "check" && (
+                <div className="rounded bg-panel p-3 text-sm">
+                  <p>Your order is reserved and ships when the check arrives.</p>
+                  {settings.checkPayableTo && <p className="mt-1">Payable to: <strong>{settings.checkPayableTo}</strong></p>}
+                  {settings.checkMailingAddress && <p className="mt-1 whitespace-pre-line text-muted">{settings.checkMailingAddress}</p>}
+                </div>
+              )}
+            </div>
+          ))}
+
+          {mode === "split" && (
+            <div className="flex items-center justify-between text-sm">
+              <button
+                type="button"
+                className="btn-ghost"
+                disabled={parts.length >= settings.maxSplitParts}
+                onClick={() => setParts([...parts, { key: Date.now(), method: methods[0] ?? "card", amount: remaining > 0 ? remaining.toFixed(2) : "", card: emptyCard, bank: emptyBank }])}
+              >
+                Add another payment method
+              </button>
+              <span className={Math.abs(remaining) < 0.001 ? "text-green-700" : "text-muted"}>
+                {Math.abs(remaining) < 0.001 ? "Fully assigned" : `${usd(remaining)} left to assign`}
+              </span>
+            </div>
+          )}
+          {settings.checkoutNote && <p className="text-xs text-muted">{settings.checkoutNote}</p>}
+        </section>
+      </div>
+
+      <aside className="card h-fit space-y-3">
+        <h2 className="font-semibold">Order summary</h2>
+        <ul className="space-y-2 text-sm">
+          {cart.lines.map((l) => (
+            <li key={l.id} className="flex justify-between gap-3">
+              <span>{l.quantity} × {l.name}<span className="block text-xs text-muted">{l.brandName}</span></span>
+              <span>{usd(l.unitPrice * l.quantity)}</span>
+            </li>
+          ))}
+        </ul>
+        <div className="flex justify-between border-t border-line pt-3 text-lg font-semibold">
+          <span>Total</span>
+          <span>{usd(total)}</span>
+        </div>
+        <p className="text-xs text-muted">Shipping and any applicable tax are invoiced by each brand.</p>
+        {error && <p className="rounded bg-red-50 p-2 text-sm text-red-800">{error}</p>}
+        <button className="btn-accent w-full" disabled={submitting}>{submitting ? "Placing order…" : "Place order"}</button>
+        <p className="text-xs text-muted">Card and bank details go straight to Authorize.net and are never stored by the portal.</p>
+      </aside>
+    </form>
+  );
+}
