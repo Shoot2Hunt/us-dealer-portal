@@ -2,7 +2,7 @@ import { count } from "drizzle-orm";
 import { db, inventory, syncState } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth/session";
 import { getStore, STORES } from "@/lib/woo/stores";
-import { runSync } from "../actions";
+import { SyncButton } from "./sync-button";
 
 const STALE_MINUTES = 30;
 
@@ -39,12 +39,7 @@ export default async function SyncPage() {
               <p className="text-muted">Last sync: {st?.lastSyncedAt?.toLocaleString() ?? "never"}</p>
               <p className="text-muted">Last webhook: {st?.lastWebhookAt?.toLocaleString() ?? "never"}</p>
               {st?.lastError && <p className="rounded bg-red-50 p-2 text-red-800">{st.lastError}</p>}
-              {configured && (
-                <form action={runSync}>
-                  <input type="hidden" name="store" value={s.key} />
-                  <button className="btn-ghost">Run full sync now</button>
-                </form>
-              )}
+              {configured && <SyncButton store={s.key} storeName={s.name} />}
             </div>
           );
         })}

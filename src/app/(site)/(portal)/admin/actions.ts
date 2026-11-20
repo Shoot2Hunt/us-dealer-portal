@@ -6,6 +6,7 @@ import { accessRequests, db, licenseDocuments, orderLines, orders, payments, sto
 import { issueSetupToken, requireAdmin } from "@/lib/auth/session";
 import { appUrl, resendLoggedEmail, sendEmail, type EmailMessage } from "@/lib/email";
 import { accessDenied, adminInvite, setupLinkResent, welcomeApproved } from "@/lib/email-templates";
+import { errorMessage } from "@/lib/errors";
 import { releaseIfPaid } from "@/lib/orders";
 import { createWooOrder } from "@/lib/woo/orders";
 import { isStoreKey, storeName } from "@/lib/woo/stores";
@@ -137,18 +138,25 @@ export async function retryStoreOrder(form: FormData) {
   revalidatePath(`/admin/orders/${order.id}`);
 }
 
-export async function runSync(form: FormData) {
+export type SyncResult = { ok: boolean; message: string; seconds: number } | undefined;
+
+/** Full sync of one store. Returns a summary for the button's status line. */
+export async function runSync(_: SyncResult, form: FormData): Promise<SyncResult> {
   const admin = await requireAdmin();
-  if (admin.role !== "super_admin") return;
+  if (admin.role !== "super_admin") return { ok: false, message: "Only super admins can run a sync.", seconds: 0 };
   const store = String(form.get("store"));
-  if (isStoreKey(store)) {
-    try {
-      await syncStore(store, { full: true });
-    } catch {
-      // Error is recorded in sync_state and shown on the page.
-    }
+  if (!isStoreKey(store)) return { ok: false, message: "Unknown store.", seconds: 0 };
+  const started = Date.now();
+  const seconds = () => Math.round((Date.now() - started) / 1000);
+  try {
+    const { products, rows } = await syncStore(store, { full: true });
+    revalidatePath("/admin/sync");
+    return { ok: true, message: `Synced ${products} products (${rows} items incl. variations).`, seconds: seconds() };
+  } catch (err) {
+    // The error is also recorded in sync_state and shown on the card.
+    revalidatePath("/admin/sync");
+    return { ok: false, message: `Sync failed: ${errorMessage(err)}`, seconds: seconds() };
   }
-  revalidatePath("/admin/sync");
 }
 
 /** Re-send a failed email from the email log. Super admins only (the log covers every brand). */
