@@ -11,6 +11,33 @@ export class WooError extends Error {
   }
 }
 
+/**
+ * Turn WooCommerce's vague auth errors into an actionable hint. Shown on the
+ * Store sync page, so an admin can fix the setting without reading logs.
+ */
+function diagnose(store: StoreConfig, res: Response, code?: string): string {
+  const setting = `WOO_${store.envPrefix}`;
+  // fetch drops the Authorization header when a redirect goes to another host,
+  // so Woo sees an anonymous request and answers "cannot list resources".
+  if (res.redirected) {
+    const from = new URL(store.url).origin;
+    const to = new URL(res.url).origin;
+    if (from !== to) return ` (Cause: ${from} redirects to ${to}, which drops the API key. Set ${setting}_URL to ${to}.)`;
+  }
+  if (res.status !== 401 && res.status !== 403) return "";
+  if (code === "woocommerce_rest_authentication_error") {
+    return ` (Cause: the store rejected the API key. Check ${setting}_KEY (starts ck_) and ${setting}_SECRET (starts cs_) aren't swapped, revoked or padded with spaces.)`;
+  }
+  if (code === "woocommerce_rest_cannot_view" || code === "woocommerce_rest_cannot_create" || code === "woocommerce_rest_cannot_edit") {
+    return (
+      ` (Likely cause: the request reached the store without valid credentials. Check that the REST API key still exists and is Read/Write,` +
+      ` that its WordPress user is still an Administrator or Shop Manager, and that the host or a security plugin isn't stripping` +
+      ` the Authorization header (Apache fix in .htaccess: SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1).)`
+    );
+  }
+  return "";
+}
+
 /** Minimal WooCommerce REST v3 client (HTTPS + basic auth). */
 export async function woo<T>(
   store: StoreConfig,
@@ -40,8 +67,8 @@ export async function woo<T>(
     body = text;
   }
   if (!res.ok) {
-    const msg = (body as { message?: string } | null)?.message ?? res.statusText;
-    throw new WooError(`${store.name}: ${msg}`, res.status, body);
+    const { message, code } = (body ?? {}) as { message?: string; code?: string };
+    throw new WooError(`${store.name}: ${message ?? res.statusText}${diagnose(store, res, code)}`, res.status, body);
   }
   return { data: body as T, totalPages: Number(res.headers.get("x-wp-totalpages") ?? "1") };
 }

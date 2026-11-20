@@ -16,6 +16,8 @@ export type StoreKey = (typeof STORES)[number]["key"];
 export type StoreConfig = {
   key: StoreKey;
   name: string;
+  /** Env var prefix, e.g. UNKNOWN_MUNITIONS → WOO_UNKNOWN_MUNITIONS_URL. */
+  envPrefix: string;
   url: string;
   consumerKey: string;
   consumerSecret: string;
@@ -33,6 +35,7 @@ export function getStore(key: StoreKey): StoreConfig {
   return {
     key: def.key,
     name: def.name,
+    envPrefix: def.envPrefix,
     url: env("URL").replace(/\/$/, ""),
     consumerKey: env("KEY"),
     consumerSecret: env("SECRET"),
