@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { readSession, SESSION_COOKIE } from "@/lib/auth/token";
 
 /** Everything is behind sign-in except these. */
-const PUBLIC = ["/login", "/request-access", "/set-password", "/studio", "/api/webhooks", "/api/cron", "/api/revalidate"];
+const PUBLIC = ["/login", "/request-access", "/forgot-password", "/set-password","/studio", "/api/webhooks", "/api/cron", "/api/revalidate"];
 
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;

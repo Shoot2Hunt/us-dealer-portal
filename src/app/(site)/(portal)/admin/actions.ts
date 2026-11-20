@@ -2,9 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
-import { accessRequests, db, orderLines, orders, payments, storeOrders, users, type User } from "@/lib/db";
+import { accessRequests, db, licenseDocuments, orderLines, orders, payments, storeOrders, users, type User } from "@/lib/db";
 import { issueSetupToken, requireAdmin } from "@/lib/auth/session";
-import { appUrl, sendEmail } from "@/lib/email";
+import { appUrl, resendLoggedEmail, sendEmail, type EmailMessage } from "@/lib/email";
+import { accessDenied, adminInvite, setupLinkResent, welcomeApproved } from "@/lib/email-templates";
 import { releaseIfPaid } from "@/lib/orders";
 import { createWooOrder } from "@/lib/woo/orders";
 import { isStoreKey, storeName } from "@/lib/woo/stores";
@@ -14,13 +15,13 @@ function canManageBrand(admin: User, brandSlug: string) {
   return admin.role === "super_admin" || admin.brandSlug === brandSlug;
 }
 
-async function sendSetupLink(user: User, intro: string) {
+/**
+ * Issue a fresh 7-day set-password link and email it using the given template.
+ * Failures are recorded in the email log (/admin/emails) rather than thrown.
+ */
+async function sendSetupLink(user: User, kind: string, template: (setPasswordUrl: string) => Promise<Omit<EmailMessage, "to">>) {
   const token = await issueSetupToken(user.id);
-  await sendEmail({
-    to: user.email,
-    subject: "Your dealer portal access",
-    text: `${intro}\n\nSet your password here (link works for 7 days):\n${appUrl(`/set-password?token=${token}`)}`,
-  });
+  return sendEmail({ to: user.email, kind, sensitive: true, ...(await template(appUrl(`/set-password?token=${token}`))) });
 }
 
 export async function approveRequest(form: FormData) {
@@ -42,7 +43,9 @@ export async function approveRequest(form: FormData) {
         })
         .returning();
   await db().update(accessRequests).set({ status: "approved", handledBy: admin.id, handledAt: new Date() }).where(eq(accessRequests.id, id));
-  await sendSetupLink(user, `Good news — ${storeName(req.brandSlug)} approved your dealer portal account.`);
+  // The FFL/SOT copies now belong to the dealer, so they can view their own files.
+  await db().update(licenseDocuments).set({ userId: user.id }).where(eq(licenseDocuments.accessRequestId, id));
+  await sendSetupLink(user, "onboarding.welcome", (setPasswordUrl) => welcomeApproved({ name: user.name, brandName: storeName(req.brandSlug), setPasswordUrl }));
   revalidatePath("/admin");
 }
 
@@ -52,6 +55,9 @@ export async function denyRequest(form: FormData) {
   const [req] = await db().select().from(accessRequests).where(eq(accessRequests.id, id));
   if (!req || !canManageBrand(admin, req.brandSlug)) return;
   await db().update(accessRequests).set({ status: "denied", handledBy: admin.id, handledAt: new Date() }).where(eq(accessRequests.id, id));
+  if (form.get("notify") === "on") {
+    await sendEmail({ to: req.email, kind: "access_request.denied", ...(await accessDenied({ name: req.name, brandName: storeName(req.brandSlug) })) });
+  }
   revalidatePath("/admin");
 }
 
@@ -75,7 +81,7 @@ export async function updateDealer(form: FormData) {
 export async function resendSetupLink(form: FormData) {
   await requireAdmin();
   const [user] = await db().select().from(users).where(eq(users.id, String(form.get("id"))));
-  if (user) await sendSetupLink(user, "Here's a new link to set your dealer portal password.");
+  if (user) await sendSetupLink(user, "onboarding.setup_link", (setPasswordUrl) => setupLinkResent({ name: user.name, setPasswordUrl }));
 }
 
 export async function createAdmin(form: FormData) {
@@ -94,7 +100,7 @@ export async function createAdmin(form: FormData) {
     })
     .onConflictDoNothing()
     .returning();
-  if (user) await sendSetupLink(user, "You've been added as an admin on the dealer portal.");
+  if (user) await sendSetupLink(user, "onboarding.admin_invite", (setPasswordUrl) => adminInvite({ name: user.name, setPasswordUrl }));
   revalidatePath("/admin/dealers");
 }
 
@@ -143,4 +149,13 @@ export async function runSync(form: FormData) {
     }
   }
   revalidatePath("/admin/sync");
+}
+
+/** Re-send a failed email from the email log. Super admins only (the log covers every brand). */
+export async function retryEmail(form: FormData) {
+  const admin = await requireAdmin();
+  if (admin.role !== "super_admin") return;
+  const id = Number(form.get("id"));
+  if (Number.isInteger(id)) await resendLoggedEmail(id);
+  revalidatePath("/admin/emails");
 }

@@ -55,12 +55,18 @@ export const checkPassword = (pw: string, hash: string) => bcrypt.compare(pw, ha
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
-/** Create a one-time link token (valid 7 days). Only its hash is stored. */
-export async function issueSetupToken(userId: string): Promise<string> {
+export const SETUP_LINK_TTL_MS = 7 * 864e5;
+export const RESET_LINK_TTL_MS = 60 * 60 * 1000;
+
+/**
+ * Create a one-time link token. Only its hash is stored, and issuing a new one
+ * invalidates any older link. Setup links last 7 days; reset links 1 hour.
+ */
+export async function issueSetupToken(userId: string, ttlMs = SETUP_LINK_TTL_MS): Promise<string> {
   const token = randomBytes(32).toString("base64url");
   await db()
     .update(users)
-    .set({ setupTokenHash: sha256(token), setupTokenExpires: new Date(Date.now() + 7 * 864e5) })
+    .set({ setupTokenHash: sha256(token), setupTokenExpires: new Date(Date.now() + ttlMs) })
     .where(eq(users.id, userId));
   return token;
 }

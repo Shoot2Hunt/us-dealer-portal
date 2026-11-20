@@ -68,6 +68,8 @@ export const users = pgTable("users", {
   shippingAddress: jsonb("shipping_address").$type<Address>(),
   setupTokenHash: text("setup_token_hash"),
   setupTokenExpires: timestamp("setup_token_expires", { withTimezone: true }),
+  /** Last "forgot password" email, to stop repeated requests from flooding the inbox. */
+  passwordResetRequestedAt: timestamp("password_reset_requested_at", { withTimezone: true }),
   approvedBy: uuid("approved_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -87,6 +89,52 @@ export const accessRequests = pgTable("access_requests", {
   handledBy: uuid("handled_by"),
   handledAt: timestamp("handled_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const licenseDocKindEnum = pgEnum("license_doc_kind", ["ffl", "sot"]);
+
+/**
+ * FFL / SOT copies uploaded with an access request. Linked to the dealer's user
+ * once the request is approved. Only admins and that dealer may view them
+ * (enforced in /api/license-documents/[id]).
+ */
+export const licenseDocuments = pgTable("license_documents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  accessRequestId: uuid("access_request_id"),
+  userId: uuid("user_id"),
+  kind: licenseDocKindEnum("kind").notNull(),
+  fileName: text("file_name").notNull(),
+  contentType: text("content_type").notNull(),
+  size: integer("size").notNull(),
+  /** File bytes, base64-encoded. Never select this in list queries. */
+  data: text("data").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const emailStatusEnum = pgEnum("email_status", [
+  "sent", // accepted by the email provider
+  "failed", // gave up after retries; shown on /admin/emails
+  "logged", // no provider configured (development); printed to the console only
+]);
+
+/** Every email the portal tries to send, so failures are visible and can be retried. */
+export const emailLog = pgTable("email_log", {
+  id: serial("id").primaryKey(),
+  /** What kind of email this is, e.g. "access_request.admin" or "password.reset". */
+  kind: text("kind").notNull(),
+  to: text("to").array().notNull(),
+  subject: text("subject").notNull(),
+  status: emailStatusEnum("status").notNull(),
+  attempts: integer("attempts").notNull().default(0),
+  providerId: text("provider_id"),
+  error: text("error"),
+  /**
+   * Stored so a failed email can be re-sent as-is. Null for emails that contain
+   * a password link: those are re-sent by issuing a fresh link instead.
+   */
+  body: jsonb("body").$type<{ text: string; html?: string; replyTo?: string }>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const inventory = pgTable(
@@ -183,5 +231,7 @@ export const payments = pgTable("payments", {
 
 export type User = typeof users.$inferSelect;
 export type InventoryRow = typeof inventory.$inferSelect;
+export type EmailLogRow = typeof emailLog.$inferSelect;
+export type LicenseDocKind =(typeof licenseDocKindEnum.enumValues)[number];
 export type Order = typeof orders.$inferSelect;
 export type Payment = typeof payments.$inferSelect;

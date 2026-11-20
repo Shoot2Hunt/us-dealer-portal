@@ -2,6 +2,8 @@ import { asc } from "drizzle-orm";
 import { db, users } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth/session";
 import { STORES, storeName } from "@/lib/woo/stores";
+import { docsForUsers } from "@/lib/license-docs";
+import { LicenseDocPreview } from "@/components/license-doc-preview";
 import { createAdmin, resendSetupLink, updateDealer } from "../actions";
 
 export default async function DealersPage() {
@@ -9,6 +11,7 @@ export default async function DealersPage() {
   const all = await db().select().from(users).orderBy(asc(users.company), asc(users.name));
   const dealers = all.filter((u) => u.role === "dealer");
   const admins = all.filter((u) => u.role !== "dealer");
+  const docs = await docsForUsers(dealers.map((d) => d.id));
   return (
     <div className="space-y-8">
       <section className="space-y-3">
@@ -21,6 +24,9 @@ export default async function DealersPage() {
               <p className="font-semibold">{d.company ?? d.name}</p>
               <p className="text-muted">{d.name} · {d.email}</p>
               <p className="text-muted">FFL {d.fflNumber ?? "—"}{!d.passwordHash && " · hasn't set a password yet"}</p>
+              <div className="mt-2">
+                <LicenseDocPreview compact docs={docs.filter((doc) => doc.userId === d.id)} />
+              </div>
             </div>
             <div className="space-y-2">
               <label className="block">FFL expires <input type="date" name="fflExpires" defaultValue={d.fflExpires ?? ""} className="input mt-1" /></label>

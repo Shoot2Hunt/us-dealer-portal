@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState } from "react";
 import { login } from "../actions";
 
@@ -13,7 +14,10 @@ export function LoginForm({ next }: { next: string }) {
         <input className="input" id="email" name="email" type="email" autoComplete="email" required />
       </div>
       <div>
-        <label className="label" htmlFor="password">Password</label>
+        <div className="flex items-baseline justify-between">
+          <label className="label" htmlFor="password">Password</label>
+          <Link href="/forgot-password" className="text-xs text-accent hover:underline">Forgot password?</Link>
+        </div>
         <input className="input" id="password" name="password" type="password" autoComplete="current-password" required />
       </div>
       {state?.error && <p className="text-sm text-red-700">{state.error}</p>}

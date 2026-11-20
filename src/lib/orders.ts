@@ -178,7 +178,7 @@ export async function placeOrder(user: User, input: CheckoutInput): Promise<Chec
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
       await db().insert(storeOrders).values({ orderId: order.id, store, subtotal, error });
-      await sendEmail({ to: process.env.ADMIN_NOTIFY_EMAIL ?? "", subject: `Action needed: order #${order.number} didn't reach ${storeName(store)}`, text: `${error}\n\n${appUrl(`/admin/orders/${order.id}`)}` });
+      await sendEmail({ kind: "order.store_failed", to: process.env.ADMIN_NOTIFY_EMAIL ?? "", subject: `Action needed: order #${order.number} didn't reach ${storeName(store)}`, text: `${error}\n\n${appUrl(`/admin/orders/${order.id}`)}` });
     }
   }
 
@@ -189,12 +189,13 @@ export async function placeOrder(user: User, input: CheckoutInput): Promise<Chec
 async function notifyOrderPlaced(user: User, orderId: string, number: number, total: string, stores: string[], paid: boolean, brands: { storeKey: string; notificationEmails?: string[] }[]) {
   const link = appUrl(`/orders/${orderId}`);
   await sendEmail({
+    kind: "order.confirmation",
     to: user.email,
     subject: `Order #${number} received`,
     text: `Thanks — we received order #${number} for $${total}.${paid ? "" : " It will ship once your payment clears."}\n\n${link}`,
   });
   const brandEmails = brands.filter((b) => stores.includes(b.storeKey)).flatMap((b) => b.notificationEmails ?? []);
-  await sendEmail({ to: brandEmails, subject: `New dealer order #${number} from ${user.company ?? user.name}`, text: appUrl(`/admin/orders/${orderId}`) });
+  await sendEmail({ kind: "order.brand_notice", to: brandEmails, subject: `New dealer order #${number} from ${user.company ?? user.name}`, text: appUrl(`/admin/orders/${orderId}`) });
 }
 
 /** When every payment on an order has cleared, release the brands' Woo orders to Processing. */
@@ -226,7 +227,7 @@ export async function markPaymentProblem(orderId: string, paymentId: number, rea
       await db().update(storeOrders).set({ wooStatus: "on-hold", updatedAt: new Date() }).where(eq(storeOrders.id, so.id));
     }
   }
-  await sendEmail({ to: process.env.ADMIN_NOTIFY_EMAIL ?? "", subject: `Payment problem on order #${order?.number}`, text: `${reason}\n\n${appUrl(`/admin/orders/${orderId}`)}` });
+  await sendEmail({ kind: "order.payment_problem", to: process.env.ADMIN_NOTIFY_EMAIL ?? "", subject: `Payment problem on order #${order?.number}`, text: `${reason}\n\n${appUrl(`/admin/orders/${orderId}`)}` });
 }
 
 export async function getOrderForUser(user: User, orderId: string) {
