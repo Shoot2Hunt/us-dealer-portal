@@ -3,6 +3,7 @@ import { db, users } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth/session";
 import { STORES, storeName } from "@/lib/woo/stores";
 import { docsForUsers } from "@/lib/license-docs";
+import { getTierStatuses, type TierStatus } from "@/lib/tiers";
 import { LicenseDocPreview } from "@/components/license-doc-preview";
 import { createAdmin, resendSetupLink, updateDealer } from "../actions";
 
@@ -11,7 +12,7 @@ export default async function DealersPage() {
   const all = await db().select().from(users).orderBy(asc(users.company), asc(users.name));
   const dealers = all.filter((u) => u.role === "dealer");
   const admins = all.filter((u) => u.role !== "dealer");
-  const docs = await docsForUsers(dealers.map((d) => d.id));
+  const [docs, tiers] = await Promise.all([docsForUsers(dealers.map((d) => d.id)), getTierStatuses(dealers.map((d) => d.id))]);
   return (
     <div className="space-y-8">
       <section className="space-y-3">
@@ -24,6 +25,7 @@ export default async function DealersPage() {
               <p className="font-semibold">{d.company ?? d.name}</p>
               <p className="text-muted">{d.name} · {d.email}</p>
               <p className="text-muted">FFL {d.fflNumber ?? "—"}{!d.passwordHash && " · hasn't set a password yet"}</p>
+              <TierLine status={tiers.get(d.id)!} />
               <div className="mt-2">
                 <LicenseDocPreview compact docs={docs.filter((doc) => doc.userId === d.id)} />
               </div>
@@ -79,5 +81,21 @@ export default async function DealersPage() {
         )}
       </section>
     </div>
+  );
+}
+
+const usd0 = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+
+/** Automatic volume tier from paid spend in the last 12 months (src/lib/tiers.ts). */
+function TierLine({ status }: { status: TierStatus }) {
+  return (
+    <p className="mt-1 flex flex-wrap items-center gap-1.5">
+      <span className={`badge ${status.tier ? "bg-accent/10 text-accent" : "bg-panel text-muted"}`}>
+        {status.tier ? `${status.tier.name} · ${status.tier.percentOff}% off` : "No tier"}
+      </span>
+      <span className="text-xs text-muted">
+        {usd0(status.spend)} paid, last 12 mo{status.next && ` · ${usd0(status.toNext)} to ${status.next.name}`}
+      </span>
+    </p>
   );
 }

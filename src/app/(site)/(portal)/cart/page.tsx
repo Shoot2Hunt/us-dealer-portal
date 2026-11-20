@@ -18,6 +18,7 @@ export default function CartPage() {
     <div className="grid gap-8 lg:grid-cols-[1fr_320px]">
       <div className="space-y-6">
         <h1 className="text-2xl font-semibold tracking-tight">Cart</h1>
+        {cart.priceNotice && <p className="rounded-md bg-accent/5 px-3 py-2 text-sm">{cart.priceNotice}</p>}
         {[...byBrand].map(([brand, lines]) => (
           <section key={brand} className="card">
             <h2 className="mb-3 font-semibold">{brand}</h2>

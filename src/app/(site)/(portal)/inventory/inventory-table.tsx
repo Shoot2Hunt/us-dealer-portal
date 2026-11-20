@@ -303,7 +303,10 @@ function Row({ item }: { item: CatalogItem }) {
         )}
       </td>
       <td className="px-3 py-2 text-right text-muted">{item.retailPrice !== null ? usd(item.retailPrice) : "—"}</td>
-      <td className="px-3 py-2 text-right font-medium">{item.dealerPrice !== null ? usd(item.dealerPrice) : "—"}</td>
+      <td className="px-3 py-2 text-right font-medium">
+        {item.dealerPrice !== null ? usd(item.dealerPrice) : "—"}
+        {item.tierApplied && <span className="block text-[11px] font-normal text-accent">{item.tierApplied} price</span>}
+      </td>
       <td className="px-3 py-2">
         {orderable && (
           <div className="flex items-center justify-end gap-2">

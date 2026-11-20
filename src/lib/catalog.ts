@@ -4,6 +4,7 @@ import { db, inventory, type InventoryRow, type User } from "@/lib/db";
 import { getBrands, getProductOverrides, type Brand, type ProductOverride } from "@/sanity/content";
 import { hasCurrentSot } from "@/lib/auth/session";
 import { storeName } from "@/lib/woo/stores";
+import { getTierStatus, type Tier } from "@/lib/tiers";
 
 /** What a dealer sees for one product or variation. Safe to send to the browser. */
 export type CatalogItem = {
@@ -19,7 +20,10 @@ export type CatalogItem = {
   stockStatus: string;
   inStock: boolean;
   retailPrice: number | null;
+  /** What this dealer pays: the lower of their normal dealer price and their tier price. */
   dealerPrice: number | null;
+  /** Set (e.g. "Tier 2") when the tier discount is what made dealerPrice. */
+  tierApplied?: string;
   minQuantity: number;
   featured: boolean;
   dealerNote?: string;
@@ -29,11 +33,28 @@ export type CatalogItem = {
   updatedAt: string;
 };
 
-export type CatalogContext = { brands: Brand[]; overrides: Map<string, ProductOverride> };
+export type CatalogContext = {
+  brands: Brand[];
+  overrides: Map<string, ProductOverride>;
+  /** The viewing dealer's volume tier (src/lib/tiers.ts), if they have one. */
+  tier: Tier | null;
+};
 
-export async function loadCatalogContext(): Promise<CatalogContext> {
-  const [brands, overrides] = await Promise.all([getBrands(), getProductOverrides()]);
-  return { brands, overrides: new Map(overrides.filter((o) => o.sku).map((o) => [`${o.storeKey}:${o.sku}`, o])) };
+/** Pass the user so their volume tier is applied to prices. */
+export async function loadCatalogContext(user: User): Promise<CatalogContext> {
+  const [brands, overrides, tier] = await Promise.all([
+    getBrands(),
+    getProductOverrides(),
+    user.role === "dealer" ? getTierStatus(user.id).then((s) => s.tier) : null,
+  ]);
+  return { brands, overrides: new Map(overrides.filter((o) => o.sku).map((o) => [`${o.storeKey}:${o.sku}`, o])), tier };
+}
+
+/** Lower of the normal dealer price and the tier price. Discounts never stack. */
+function bestPrice(normal: number | null, retail: number | null, tier: Tier | null): { price: number | null; tierApplied?: string } {
+  const tierPrice = tier && retail !== null ? Math.round(retail * (100 - tier.percentOff)) / 100 : null;
+  if (tierPrice !== null && (normal === null || tierPrice < normal)) return { price: tierPrice, tierApplied: tier!.name };
+  return { price: normal };
 }
 
 function visibleStores(user: User, ctx: CatalogContext): string[] | null {
@@ -51,7 +72,8 @@ export function toCatalogItem(row: InventoryRow, user: User, ctx: CatalogContext
 
   const retail = row.retailPrice ? Number(row.retailPrice) : null;
   const discount = brand?.dealerDiscountPercent ?? 0;
-  const dealerPrice = o?.dealerPrice ?? (retail !== null ? Math.round(retail * (100 - discount)) / 100 : null);
+  const normalPrice = o?.dealerPrice ?? (retail !== null ? Math.round(retail * (100 - discount)) / 100 : null);
+  const { price: dealerPrice, tierApplied } = bestPrice(normalPrice, retail, ctx.tier);
 
   let restriction: string | undefined;
   const needsSot = brand?.sotRequiredCategories?.some((c) => row.categories.includes(c));
@@ -72,6 +94,7 @@ export function toCatalogItem(row: InventoryRow, user: User, ctx: CatalogContext
     inStock: inStock && (!row.manageStock || row.stockStatus === "onbackorder" || (row.stockQuantity ?? 0) > 0),
     retailPrice: retail,
     dealerPrice,
+    tierApplied,
     minQuantity: o?.minQuantity ?? 1,
     featured: o?.featured ?? false,
     dealerNote: o?.dealerNote,
@@ -82,7 +105,7 @@ export function toCatalogItem(row: InventoryRow, user: User, ctx: CatalogContext
 }
 
 export async function getCatalog(user: User, ctx?: CatalogContext): Promise<CatalogItem[]> {
-  const c = ctx ?? (await loadCatalogContext());
+  const c = ctx ?? (await loadCatalogContext(user));
   const stores = visibleStores(user, c);
   const rows = await db()
     .select()

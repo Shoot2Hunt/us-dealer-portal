@@ -16,6 +16,8 @@ export type CartLine = {
 
 type Cart = {
   lines: CartLine[];
+  /** Set when a server price refresh changed something in the cart. */
+  priceNotice: string | null;
   count: number;
   total: number;
   add: (line: Omit<CartLine, "quantity">, quantity: number) => void;
@@ -39,6 +41,41 @@ export function CartProvider({ userId, children }: { userId: string; children: R
     } catch {}
   }, [storageKey]);
 
+  // Refresh the price snapshot from the server whenever the set of items changes
+  // (and on load), so a tier change or price edit never leaves a stale total.
+  const [priceNotice, setPriceNotice] = useState<string | null>(null);
+  const idsKey = lines.map((l) => l.id).sort((a, b) => a - b).join(",");
+  useEffect(() => {
+    if (!idsKey) return;
+    let cancelled = false;
+    fetch(`/api/cart-prices?ids=${idsKey}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((res: { prices: Record<string, number | null> } | null) => {
+        if (!res || cancelled) return;
+        setLines((cur) => {
+          let changed = false;
+          const next = cur.map((l) => {
+            const p = res.prices[l.id];
+            if (typeof p === "number" && Math.abs(p - l.unitPrice) > 0.004) {
+              changed = true;
+              return { ...l, unitPrice: p };
+            }
+            return l;
+          });
+          if (!changed) return cur;
+          try {
+            localStorage.setItem(storageKey, JSON.stringify(next));
+          } catch {}
+          setPriceNotice("Prices in your cart were updated to your current pricing.");
+          return next;
+        });
+      })
+      .catch(() => {}); // Checkout re-prices on the server anyway.
+    return () => {
+      cancelled = true;
+    };
+  }, [idsKey, storageKey]);
+
   const save = useCallback(
     (next: CartLine[]) => {
       setLines(next);
@@ -52,6 +89,7 @@ export function CartProvider({ userId, children }: { userId: string; children: R
   const value = useMemo<Cart>(
     () => ({
       lines,
+      priceNotice,
       count: lines.reduce((s, l) => s + l.quantity, 0),
       total: lines.reduce((s, l) => s + l.unitPrice * l.quantity, 0),
       add: (line, quantity) => {
@@ -62,7 +100,7 @@ export function CartProvider({ userId, children }: { userId: string; children: R
       remove: (id) => save(lines.filter((l) => l.id !== id)),
       clear: () => save([]),
     }),
-    [lines, save],
+    [lines, save, priceNotice],
   );
 
   return <CartContext value={value}>{children}</CartContext>;

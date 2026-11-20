@@ -69,7 +69,8 @@ export async function placeOrder(user: User, input: CheckoutInput): Promise<Chec
     if (isStoreKey(r.store)) await refreshProduct(r.store, r.productId);
   }
   const rows = await db().select().from(inventory).where(inArray(inventory.id, ids));
-  const ctx = await loadCatalogContext();
+  // Includes the dealer's volume tier, so checkout charges exactly what the inventory page showed.
+  const ctx = await loadCatalogContext(user);
 
   // 2. Price and validate every line.
   type Line = { store: StoreKey; productId: number; variationId: number; sku: string | null; name: string; quantity: number; unitCents: number };

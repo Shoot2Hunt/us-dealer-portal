@@ -1,11 +1,18 @@
 import { requireUser } from "@/lib/auth/session";
 import { getCatalog } from "@/lib/catalog";
 import { getAnnouncements, getSiteSettings } from "@/sanity/content";
+import { getTierStatus } from "@/lib/tiers";
+import { TierProgress } from "@/components/tier-progress";
 import { InventoryTable } from "./inventory-table";
 
 export default async function InventoryPage() {
   const user = await requireUser();
-  const [items, announcements, s] = await Promise.all([getCatalog(user), getAnnouncements(), getSiteSettings()]);
+  const [items, announcements, s, tier] = await Promise.all([
+    getCatalog(user),
+    getAnnouncements(),
+    getSiteSettings(),
+    user.role === "dealer" ? getTierStatus(user.id) : null,
+  ]);
   return (
     <div className="space-y-6">
       {announcements.map((a) => (
@@ -18,6 +25,7 @@ export default async function InventoryPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Inventory</h1>
         {s.welcomeMessage && <p className="mt-1 text-sm text-muted">{s.welcomeMessage}</p>}
       </div>
+      {tier && <TierProgress status={tier} />}
       <InventoryTable initial={{ items, at: new Date().toISOString() }} />
     </div>
   );
