@@ -1,9 +1,9 @@
 import Link from "next/link";
-import { isAdmin, requireUser } from "@/lib/auth/session";
+import { isAdmin, requireUser, twoFactorEnabled } from "@/lib/auth/session";
 import { getNavPages, getSiteSettings } from "@/sanity/content";
 import { CartProvider } from "@/components/cart";
 import { CartLink } from "@/components/cart-link";
-import { logout } from "../(auth)/actions";
+import { UserMenu } from "@/components/user-menu";
 
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
@@ -28,11 +28,8 @@ export default async function PortalLayout({ children }: { children: React.React
             {isAdmin(user) && <Link href="/admin" className="font-medium text-accent">Admin</Link>}
           </nav>
           <div className="flex items-center gap-3 text-sm">
-            <span className="hidden text-muted sm:inline">{user.company ?? user.name}</span>
             <CartLink />
-            <form action={logout}>
-              <button className="text-muted hover:text-ink">Sign out</button>
-            </form>
+            <UserMenu user={user} twoFactorOn={twoFactorEnabled(user)} />
           </div>
         </div>
       </header>

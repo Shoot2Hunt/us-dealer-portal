@@ -70,6 +70,20 @@ export const users = pgTable("users", {
   setupTokenExpires: timestamp("setup_token_expires", { withTimezone: true }),
   /** Last "forgot password" email, to stop repeated requests from flooding the inbox. */
   passwordResetRequestedAt: timestamp("password_reset_requested_at", { withTimezone: true }),
+  /** Bumped to sign the user out everywhere (password change, "sign out other devices"). */
+  sessionVersion: integer("session_version").notNull().default(0),
+  passwordChangedAt: timestamp("password_changed_at", { withTimezone: true }),
+  // --- Two-step verification (authenticator app, TOTP). Secrets are encrypted (src/lib/auth/totp.ts). ---
+  totpSecret: text("totp_secret"),
+  /** Secret shown during setup, until the user confirms it with a code. */
+  totpPendingSecret: text("totp_pending_secret"),
+  totpEnabledAt: timestamp("totp_enabled_at", { withTimezone: true }),
+  /** Last accepted 30-second step, so a code can't be used twice. */
+  totpLastStep: integer("totp_last_step"),
+  totpFailedAttempts: integer("totp_failed_attempts").notNull().default(0),
+  totpLockedUntil: timestamp("totp_locked_until", { withTimezone: true }),
+  /** SHA-256 hashes of unused one-time recovery codes. */
+  recoveryCodeHashes: text("recovery_code_hashes").array(),
   approvedBy: uuid("approved_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

@@ -5,7 +5,7 @@ import { STORES, storeName } from "@/lib/woo/stores";
 import { docsForUsers } from "@/lib/license-docs";
 import { getTierStatuses, type TierStatus } from "@/lib/tiers";
 import { LicenseDocPreview } from "@/components/license-doc-preview";
-import { createAdmin, resendSetupLink, updateDealer } from "../actions";
+import { createAdmin, resendSetupLink, resetTwoFactor, updateDealer } from "../actions";
 
 export default async function DealersPage() {
   const admin = await requireAdmin();
@@ -24,7 +24,10 @@ export default async function DealersPage() {
             <div>
               <p className="font-semibold">{d.company ?? d.name}</p>
               <p className="text-muted">{d.name} · {d.email}</p>
-              <p className="text-muted">FFL {d.fflNumber ?? "—"}{!d.passwordHash && " · hasn't set a password yet"}</p>
+              <p className="text-muted">
+                FFL {d.fflNumber ?? "—"}{!d.passwordHash && " · hasn't set a password yet"}
+                {d.totpEnabledAt && <span className="badge ml-1.5 bg-green-100 text-green-800">2FA on</span>}
+              </p>
               <TierLine status={tiers.get(d.id)!} />
               <div className="mt-2">
                 <LicenseDocPreview compact docs={docs.filter((doc) => doc.userId === d.id)} />
@@ -50,6 +53,11 @@ export default async function DealersPage() {
               </select>
               <button className="btn">Save</button>
               <button formAction={resendSetupLink} className="btn-ghost">Send password link</button>
+              {admin.role === "super_admin" && d.totpEnabledAt && (
+                <button formAction={resetTwoFactor} formNoValidate className="btn-ghost text-red-700" title="Turns off two-step verification and signs them out. Use when they've lost their phone and recovery codes.">
+                  Reset 2FA
+                </button>
+              )}
             </div>
           </form>
         ))}
@@ -61,7 +69,16 @@ export default async function DealersPage() {
           {admins.map((a) => (
             <li key={a.id} className="flex justify-between py-2">
               <span>{a.name} · {a.email}</span>
-              <span className="text-muted">{a.role === "super_admin" ? "Super admin" : `Brand admin · ${storeName(a.brandSlug ?? "")}`}</span>
+              <span className="flex items-center gap-2 text-muted">
+                {a.totpEnabledAt && <span className="badge bg-green-100 text-green-800">2FA on</span>}
+                {a.role === "super_admin" ? "Super admin" : `Brand admin · ${storeName(a.brandSlug ?? "")}`}
+                {admin.role === "super_admin" && a.totpEnabledAt && a.id !== admin.id && (
+                  <form action={resetTwoFactor}>
+                    <input type="hidden" name="id" value={a.id} />
+                    <button className="text-xs text-red-700 hover:underline">Reset 2FA</button>
+                  </form>
+                )}
+              </span>
             </li>
           ))}
         </ul>

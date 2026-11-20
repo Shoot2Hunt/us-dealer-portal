@@ -3,9 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { accessRequests, db, licenseDocuments, orderLines, orders, payments, storeOrders, users, type User } from "@/lib/db";
-import { issueSetupToken, requireAdmin } from "@/lib/auth/session";
+import { issueSetupToken, requireAdmin, signOutOtherSessions } from "@/lib/auth/session";
+import { CLEARED_TWO_FACTOR } from "@/lib/auth/two-factor";
 import { appUrl, resendLoggedEmail, sendEmail, type EmailMessage } from "@/lib/email";
-import { accessDenied, adminInvite, setupLinkResent, welcomeApproved } from "@/lib/email-templates";
+import { accessDenied, adminInvite, setupLinkResent, twoFactorDisabled, welcomeApproved } from "@/lib/email-templates";
 import { errorMessage } from "@/lib/errors";
 import { releaseIfPaid } from "@/lib/orders";
 import { createWooOrder } from "@/lib/woo/orders";
@@ -83,6 +84,22 @@ export async function resendSetupLink(form: FormData) {
   await requireAdmin();
   const [user] = await db().select().from(users).where(eq(users.id, String(form.get("id"))));
   if (user) await sendSetupLink(user, "onboarding.setup_link", (setPasswordUrl) => setupLinkResent({ name: user.name, setPasswordUrl }));
+}
+
+/**
+ * For someone who lost their phone and their recovery codes. Super admins only: turns off
+ * two-step verification, signs the user out everywhere, and emails them about it.
+ */
+export async function resetTwoFactor(form: FormData) {
+  const admin = await requireAdmin();
+  if (admin.role !== "super_admin") return;
+  const id = String(form.get("id"));
+  if (id === admin.id) return; // use your own account page for yourself
+  const [user] = await db().select().from(users).where(eq(users.id, id));
+  if (!user?.totpEnabledAt) return;
+  await signOutOtherSessions(user.id, CLEARED_TWO_FACTOR);
+  await sendEmail({ to: user.email, kind: "2fa.disabled", ...(await twoFactorDisabled({ name: user.name, byAdmin: true })) });
+  revalidatePath("/admin/dealers");
 }
 
 export async function createAdmin(form: FormData) {

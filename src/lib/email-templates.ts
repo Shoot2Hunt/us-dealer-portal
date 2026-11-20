@@ -257,3 +257,52 @@ export function passwordChanged(p: { name: string }) {
     ],
   });
 }
+
+// --- Two-step verification ---
+
+export function twoFactorEnabled(p: { name: string }) {
+  return build({
+    subject: "Two-step verification is on",
+    preheader: "Your account now asks for a code from your authenticator app.",
+    heading: "Two-step verification is on",
+    blocks: [
+      { p: `Hi ${p.name},` },
+      { p: `Two-step verification was turned on for your dealer portal account (${new Date().toUTCString()}). From now on, signing in asks for a code from your authenticator app as well as your password.` },
+      { note: "Keep your recovery codes somewhere safe. If you lose your phone, a recovery code is how you get back in." },
+      { p: "Didn't do this? Reset your password right away and reply to this email." },
+    ],
+  });
+}
+
+export function twoFactorDisabled(p: { name: string; byAdmin: boolean }) {
+  return build({
+    subject: "Two-step verification was turned off",
+    preheader: "Your account no longer asks for an authenticator code.",
+    heading: "Two-step verification is off",
+    blocks: [
+      { p: `Hi ${p.name},` },
+      {
+        p: p.byAdmin
+          ? "At your request, our team turned off two-step verification on your dealer portal account. You'll sign in with just your password until you turn it back on."
+          : `Two-step verification was turned off for your dealer portal account (${new Date().toUTCString()}).`,
+      },
+      { button: { label: "Turn it back on", url: appUrl("/account#two-factor") } },
+      { p: "Didn't expect this? Reset your password right away and reply to this email." },
+    ],
+  });
+}
+
+export function recoveryCodeUsed(p: { name: string; left: number }) {
+  return build({
+    subject: "A recovery code was used to sign in",
+    preheader: `You have ${p.left} recovery code${p.left === 1 ? "" : "s"} left.`,
+    heading: "A recovery code was used",
+    blocks: [
+      { p: `Hi ${p.name},` },
+      { p: `Someone signed in to your dealer portal account with one of your recovery codes (${new Date().toUTCString()}). You have ${p.left} left.` },
+      ...(p.left <= 3 ? [{ p: "You're running low. Create a new set on your account page." } as Block] : []),
+      { button: { label: "Manage two-step verification", url: appUrl("/account#two-factor") } },
+      { p: "Wasn't you? Reset your password right away and reply to this email." },
+    ],
+  });
+}

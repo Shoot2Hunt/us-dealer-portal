@@ -9,13 +9,27 @@ import {
   checkPassword,
   endSession,
   findUserBySetupToken,
+  getTwoFactorUser,
   hashPassword,
   issueSetupToken,
+  MIN_PASSWORD_LENGTH,
   RESET_LINK_TTL_MS,
+  signOutOtherSessions,
   startSession,
+  startTwoFactor,
+  twoFactorEnabled,
 } from "@/lib/auth/session";
+import { checkSecondFactor } from "@/lib/auth/two-factor";
 import { appUrl, sendEmail } from "@/lib/email";
-import { accessRequestCopy, accessRequestToAdmins, accountReady, passwordChanged, passwordReset, type RequestSummary } from "@/lib/email-templates";
+import {
+  accessRequestCopy,
+  accessRequestToAdmins,
+  accountReady,
+  passwordChanged,
+  passwordReset,
+  recoveryCodeUsed,
+  type RequestSummary,
+} from "@/lib/email-templates";
 import { reportError } from "@/lib/errors";
 import { getBrands } from "@/sanity/content";
 import { isStoreKey, storeName } from "@/lib/woo/stores";
@@ -31,20 +45,53 @@ const failure = (scope: string, err: unknown): FormState => ({
 export async function login(_: FormState, form: FormData): Promise<FormState> {
   const email = String(form.get("email") ?? "").trim().toLowerCase();
   const password = String(form.get("password") ?? "");
-  const next = String(form.get("next") ?? "");
+  const next = safeNext(String(form.get("next") ?? ""));
   let user: User | undefined;
+  let needsCode = false;
   try {
     [user] = await db().select().from(users).where(eq(users.email, email));
     // Same message for every failure so emails can't be probed.
     if (!user || user.status !== "active" || !user.passwordHash || !(await checkPassword(password, user.passwordHash))) {
       return { error: "That email and password don't match an active dealer account." };
     }
-    await startSession(user);
+    needsCode = twoFactorEnabled(user);
+    if (needsCode) await startTwoFactor(user, next);
+    else await startSession(user);
   } catch (err) {
     return failure("login", err);
   }
   // redirect() throws on purpose, so it stays outside the try/catch.
-  redirect(next.startsWith("/") && !next.startsWith("//") ? next : user.role === "dealer" ? "/inventory" : "/admin");
+  redirect(needsCode ? "/login/verify" : next || homeFor(user));
+}
+
+/** Only same-site paths, so a crafted ?next= can't send people to another site. */
+const safeNext = (next: string) => (next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "");
+const homeFor = (user: User) => (user.role === "dealer" ? "/inventory" : "/admin");
+
+/** Second step of sign-in: the authenticator code (or a recovery code). */
+export async function verifyLogin(_: FormState, form: FormData): Promise<FormState> {
+  const code = String(form.get("code") ?? "");
+  let pending: Awaited<ReturnType<typeof getTwoFactorUser>>;
+  try {
+    pending = await getTwoFactorUser();
+    if (!pending) return { error: "Your sign-in timed out. Go back and enter your email and password again." };
+    const result = await checkSecondFactor(pending.user, code);
+    if (!result.ok) return { error: result.error };
+    await startSession(pending.user);
+    if (result.usedRecoveryCode) {
+      const { email, name } = pending.user;
+      after(async () => {
+        try {
+          await sendEmail({ to: email, kind: "2fa.recovery_used", ...(await recoveryCodeUsed({ name, left: result.recoveryCodesLeft })) });
+        } catch (err) {
+          reportError("recovery code email", err);
+        }
+      });
+    }
+  } catch (err) {
+    return failure("verify login", err);
+  }
+  redirect(pending.next || homeFor(pending.user));
 }
 
 export async function logout() {
@@ -144,18 +191,25 @@ export async function setPassword(_: FormState, form: FormData): Promise<FormSta
   const token = String(form.get("token") ?? "");
   const password = String(form.get("password") ?? "");
   const confirm = String(form.get("confirm") ?? "");
-  if (password.length < 10) return { error: "Use at least 10 characters." };
+  if (password.length < MIN_PASSWORD_LENGTH) return { error: `Use at least ${MIN_PASSWORD_LENGTH} characters.` };
   if (password !== confirm) return { error: "The passwords don't match." };
 
   let user: User | null;
+  let needsCode = false;
   try {
     user = await findUserBySetupToken(token);
     if (!user) return { error: "This link has expired or was already used. Use \"Forgot password\" on the sign-in page to get a new one." };
-    await db()
-      .update(users)
-      .set({ passwordHash: await hashPassword(password), setupTokenHash: null, setupTokenExpires: null })
-      .where(eq(users.id, user.id));
-    await startSession(user);
+    // New password: sign out every other device that was using the old one.
+    const updated = await signOutOtherSessions(user.id, {
+      passwordHash: await hashPassword(password),
+      passwordChangedAt: new Date(),
+      setupTokenHash: null,
+      setupTokenExpires: null,
+    });
+    // An emailed link proves the inbox, not the phone, so 2FA accounts still need their code.
+    needsCode = twoFactorEnabled(updated);
+    if (needsCode) await startTwoFactor(updated, "");
+    else await startSession(updated);
   } catch (err) {
     return failure("set password", err);
   }
@@ -171,5 +225,5 @@ export async function setPassword(_: FormState, form: FormData): Promise<FormSta
       reportError("set password email", err);
     }
   });
-  redirect(user.role === "dealer" ? "/inventory" : "/admin");
+  redirect(needsCode ? "/login/verify" : homeFor(user));
 }

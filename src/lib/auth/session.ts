@@ -2,25 +2,68 @@ import "server-only";
 import { cache } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { createHash, randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { db, users, type User } from "@/lib/db";
-import { readSession, SESSION_COOKIE, SESSION_DAYS, signSession } from "./token";
+import {
+  readSession,
+  readTwoFactorTicket,
+  SESSION_COOKIE,
+  SESSION_DAYS,
+  signSession,
+  signTwoFactorTicket,
+  TWO_FACTOR_COOKIE,
+  TWO_FACTOR_MINUTES,
+} from "./token";
+
+const cookieBase = { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/" } as const;
 
 export async function startSession(user: User) {
-  const token = await signSession({ sub: user.id, role: user.role });
-  (await cookies()).set(SESSION_COOKIE, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: SESSION_DAYS * 24 * 60 * 60,
-  });
+  const token = await signSession({ sub: user.id, role: user.role, v: user.sessionVersion });
+  const jar = await cookies();
+  jar.set(SESSION_COOKIE, token, { ...cookieBase, maxAge: SESSION_DAYS * 24 * 60 * 60 });
+  jar.delete(TWO_FACTOR_COOKIE);
 }
 
 export async function endSession() {
-  (await cookies()).delete(SESSION_COOKIE);
+  const jar = await cookies();
+  jar.delete(SESSION_COOKIE);
+  jar.delete(TWO_FACTOR_COOKIE);
+}
+
+/**
+ * Sign the user out on every device (old session cookies stop working), and keep
+ * this browser signed in with a fresh session. Returns the updated user.
+ */
+export async function signOutOtherSessions(userId: string, extra: Partial<User> = {}): Promise<User> {
+  const [user] = await db()
+    .update(users)
+    .set({ ...extra, sessionVersion: sql`${users.sessionVersion} + 1` })
+    .where(eq(users.id, userId))
+    .returning();
+  return user;
+}
+
+// --- Two-step verification at sign-in ---
+
+export const twoFactorEnabled = (user: User) => Boolean(user.totpEnabledAt && user.totpSecret);
+
+/** Password was right; remember that for a few minutes while we ask for the code. */
+export async function startTwoFactor(user: User, next: string) {
+  const token = await signTwoFactorTicket({ sub: user.id, v: user.sessionVersion, next });
+  const jar = await cookies();
+  jar.delete(SESSION_COOKIE);
+  jar.set(TWO_FACTOR_COOKIE, token, { ...cookieBase, maxAge: TWO_FACTOR_MINUTES * 60 });
+}
+
+/** The user waiting to enter their code, or null if there's no valid ticket. */
+export async function getTwoFactorUser(): Promise<{ user: User; next: string } | null> {
+  const ticket = await readTwoFactorTicket((await cookies()).get(TWO_FACTOR_COOKIE)?.value);
+  if (!ticket) return null;
+  const [user] = await db().select().from(users).where(eq(users.id, ticket.sub));
+  if (!user || user.status !== "active" || user.sessionVersion !== ticket.v || !twoFactorEnabled(user)) return null;
+  return { user, next: ticket.next };
 }
 
 /** The signed-in, active user, or null. Cached per request. */
@@ -29,6 +72,8 @@ export const getCurrentUser = cache(async (): Promise<User | null> => {
   if (!session) return null;
   const [user] = await db().select().from(users).where(eq(users.id, session.sub));
   if (!user || user.status !== "active") return null;
+  // Signed out everywhere since this cookie was issued (e.g. password changed).
+  if ((session.v ?? 0) !== user.sessionVersion) return null;
   return user;
 });
 
@@ -49,6 +94,8 @@ export async function requireAdmin(): Promise<User> {
 }
 
 // --- Passwords and one-time setup links ---
+
+export const MIN_PASSWORD_LENGTH = 10;
 
 export const hashPassword = (pw: string) => bcrypt.hash(pw, 12);
 export const checkPassword = (pw: string, hash: string) => bcrypt.compare(pw, hash);
