@@ -1,17 +1,27 @@
 import "server-only";
+import { cache } from "react";
 import { createClient } from "next-sanity";
 import { apiVersion, dataset, projectId } from "./env";
 import type { ThemeSettings } from "@/lib/theme";
 
+/**
+ * Reads go straight to Sanity's live API, not its CDN. The CDN keeps answers for 60s+,
+ * which stacked on our own cache made Studio edits look stuck until a redeploy. Our
+ * cache below (REVALIDATE + the "sanity" tag) is what keeps request volume low.
+ */
 export const sanity = createClient({
   projectId,
   dataset,
   apiVersion,
-  useCdn: true,
+  useCdn: false,
+  perspective: "published",
   token: process.env.SANITY_API_READ_TOKEN || undefined,
 });
 
-/** Admin edits in the Studio show up in the portal within this many seconds. */
+/**
+ * Studio edits show up within this many seconds (one reload may still show the old
+ * version while it refreshes). The /api/revalidate webhook makes it instant.
+ */
 const REVALIDATE = 30;
 
 async function q<T>(query: string, params: Record<string, unknown> = {}): Promise<T> {
@@ -23,6 +33,30 @@ async function q<T>(query: string, params: Record<string, unknown> = {}): Promis
     return null as T;
   }
 }
+
+/**
+ * Every settings document in one request (shared by all getters below and de-duplicated
+ * per page render), so frequent refreshes cost one Sanity API call, not seven.
+ */
+const settings = cache(async () =>
+  (await q<{
+    site: SiteSettings | null;
+    payment: Partial<PaymentSettings> | null;
+    theme: ThemeSettings | null;
+    header: Partial<HeaderSettings> | null;
+    footer: Partial<FooterSettings> | null;
+    security: Partial<SecuritySettings> | null;
+    plugins: { analytics?: Record<string, unknown>; cookieConsent?: Record<string, unknown>; maintenance?: Record<string, unknown> } | null;
+  } | null>(`{
+    "site": *[_id == "siteSettings"][0]{portalName, "logoUrl": logo.asset->url, loginMessage, requestAccessIntro, welcomeMessage, supportEmail, supportPhone},
+    "payment": *[_id == "paymentSettings"][0],
+    "theme": *[_id == "themeSettings"][0]{preset, customAccent, customInk, customGold, headingFont, bodyFont, corners},
+    "header": *[_id == "headerSettings"][0]{showLogo, sticky, links[]{label, href, icon}, showPages, showContact},
+    "footer": *[_id == "footerSettings"][0]{tagline, showBrands, brandsHeading, columns[]{title, links[]{label, href}}, showPolicies, showContact, social[]{platform, url}, copyright},
+    "security": *[_id == "securitySettings"][0],
+    "plugins": *[_id == "pluginSettings"][0]{analytics, cookieConsent, maintenance}
+  }`)) ?? null,
+);
 
 export type SiteSettings = {
   portalName?: string;
@@ -77,12 +111,12 @@ export type Page = { title: string; slug: string; body?: unknown[] };
 
 export async function getSiteSettings(): Promise<SiteSettings> {
   return (
-    (await q<SiteSettings>(`*[_id == "siteSettings"][0]{portalName, "logoUrl": logo.asset->url, loginMessage, requestAccessIntro, welcomeMessage, supportEmail, supportPhone}`)) ?? {}
+    (await settings())?.site ?? {}
   );
 }
 
 export async function getPaymentSettings(): Promise<PaymentSettings> {
-  const s = await q<Partial<PaymentSettings> | null>(`*[_id == "paymentSettings"][0]`);
+  const s = (await settings())?.payment;
   return {
     enableCard: s?.enableCard ?? true,
     enableAch: s?.enableAch ?? true,
@@ -134,7 +168,7 @@ export async function getFooterPages(): Promise<{ title: string; slug: string }[
 // --- Appearance ---
 
 export async function getThemeSettings(): Promise<ThemeSettings> {
-  return (await q<ThemeSettings | null>(`*[_id == "themeSettings"][0]{preset, customAccent, customInk, customGold, headingFont, bodyFont, corners}`)) ?? {};
+  return (await settings())?.theme ?? {};
 }
 
 export type NavLink = { label: string; href: string; icon?: string };
@@ -149,7 +183,7 @@ export type HeaderSettings = {
 };
 
 export async function getHeaderSettings(): Promise<HeaderSettings> {
-  const h = await q<Partial<HeaderSettings> | null>(`*[_id == "headerSettings"][0]{showLogo, sticky, links[]{label, href, icon}, showPages, showContact}`);
+  const h = (await settings())?.header;
   return {
     showLogo: h?.showLogo ?? true,
     sticky: h?.sticky ?? true,
@@ -171,9 +205,7 @@ export type FooterSettings = {
 };
 
 export async function getFooterSettings(): Promise<FooterSettings> {
-  const f = await q<Partial<FooterSettings> | null>(
-    `*[_id == "footerSettings"][0]{tagline, showBrands, brandsHeading, columns[]{title, links[]{label, href}}, showPolicies, showContact, social[]{platform, url}, copyright}`,
-  );
+  const f = (await settings())?.footer;
   return {
     tagline: f?.tagline ?? "Wholesale ordering for authorized dealers, across all of our brands in one place.",
     showBrands: f?.showBrands ?? true,
@@ -206,7 +238,7 @@ const clamp = (v: unknown, min: number, max: number, fallback: number) =>
  * an unreachable Sanity can only ever fall back to the secure defaults.
  */
 export async function getSecuritySettings(): Promise<SecuritySettings> {
-  const s = await q<Partial<SecuritySettings> | null>(`*[_id == "securitySettings"][0]`);
+  const s = (await settings())?.security;
   return {
     requireTwoFactorAdmins: s?.requireTwoFactorAdmins === true,
     requireTwoFactorDealers: s?.requireTwoFactorDealers === true,
@@ -229,9 +261,7 @@ export type PluginSettings = {
 const ID_PATTERNS = { ga4Id: /^G-[A-Z0-9]{4,15}$/, gtmId: /^GTM-[A-Z0-9]{4,12}$/, metaPixelId: /^\d{8,20}$/ } as const;
 
 export async function getPluginSettings(): Promise<PluginSettings> {
-  const p = await q<{ analytics?: Record<string, unknown>; cookieConsent?: Record<string, unknown>; maintenance?: Record<string, unknown> } | null>(
-    `*[_id == "pluginSettings"][0]{analytics, cookieConsent, maintenance}`,
-  );
+  const p = (await settings())?.plugins;
   const a = p?.analytics ?? {};
   const c = p?.cookieConsent ?? {};
   const m = p?.maintenance ?? {};
