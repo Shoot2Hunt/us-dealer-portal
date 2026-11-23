@@ -1,6 +1,6 @@
 import "server-only";
-import { inArray } from "drizzle-orm";
-import { db, inventory, type InventoryRow, type User } from "@/lib/db";
+import { and, eq, getTableColumns, inArray } from "drizzle-orm";
+import { db, inventory, type InventoryRow, type ProductAttribute, type ProductSpec, type User } from "@/lib/db";
 import { getBrands, getProductOverrides, type Brand, type ProductOverride } from "@/sanity/content";
 import { hasCurrentSot } from "@/lib/auth/session";
 import { storeName } from "@/lib/woo/stores";
@@ -67,7 +67,14 @@ function visibleStores(user: User, ctx: CatalogContext): string[] | null {
   return (allowed ?? all).filter((s) => !inactive.has(s));
 }
 
-export function toCatalogItem(row: InventoryRow, user: User, ctx: CatalogContext): CatalogItem | null {
+/** Columns the list view needs; the detail-page fields stay out of the 10-second poll. */
+const DETAIL_ONLY = ["description", "shortDescription", "images", "attributes", "specs"] as const;
+type CatalogRow = Omit<InventoryRow, (typeof DETAIL_ONLY)[number]>;
+const listColumns = Object.fromEntries(
+  Object.entries(getTableColumns(inventory)).filter(([k]) => !(DETAIL_ONLY as readonly string[]).includes(k)),
+) as { [K in keyof CatalogRow]: ReturnType<typeof getTableColumns<typeof inventory>>[K] };
+
+export function toCatalogItem(row: CatalogRow, user: User, ctx: CatalogContext): CatalogItem | null {
   const brand = ctx.brands.find((b) => b.storeKey === row.store);
   const o = row.sku ? ctx.overrides.get(`${row.store}:${row.sku}`) : undefined;
   if (o?.hidden) return null;
@@ -111,13 +118,81 @@ export async function getCatalog(user: User, ctx?: CatalogContext): Promise<Cata
   const c = ctx ?? (await loadCatalogContext(user));
   const stores = visibleStores(user, c);
   const rows = await db()
-    .select()
+    .select(listColumns)
     .from(inventory)
     .where(stores ? inArray(inventory.store, stores.length ? stores : ["__none__"]) : undefined);
   return rows
     .map((r) => toCatalogItem(r, user, c))
     .filter((x): x is CatalogItem => x !== null)
     .sort((a, b) => Number(b.featured) - Number(a.featured) || a.brandName.localeCompare(b.brandName) || a.name.localeCompare(b.name));
+}
+
+/** One purchasable option on the detail page. */
+export type ProductVariant = CatalogItem & {
+  /** e.g. [{ name: "Caliber", option: "9mm" }]; empty for simple products. */
+  attributes: ProductAttribute[];
+  /** Short label for the picker, e.g. "9mm / Black". */
+  label: string;
+};
+
+export type ProductDetail = {
+  store: string;
+  productId: number;
+  brandName: string;
+  name: string;
+  categories: string[];
+  /** Raw WooCommerce HTML; sanitize before rendering. */
+  description: string | null;
+  shortDescription: string | null;
+  images: string[];
+  specs: ProductSpec[];
+  productUrl: string | null;
+  variants: ProductVariant[];
+};
+
+/**
+ * A product and every variation this dealer may see, for /inventory/[store]/[id].
+ * Same brand visibility, hidden-product and pricing rules as the inventory list.
+ */
+export async function getProduct(user: User, store: string, productId: number): Promise<ProductDetail | null> {
+  const ctx = await loadCatalogContext(user);
+  const stores = visibleStores(user, ctx);
+  if (stores && !stores.includes(store)) return null;
+
+  const rows = await db()
+    .select()
+    .from(inventory)
+    .where(and(eq(inventory.store, store), eq(inventory.productId, productId)));
+
+  const variants: ProductVariant[] = [];
+  for (const r of rows) {
+    const item = toCatalogItem(r, user, ctx);
+    if (!item) continue;
+    const label =
+      r.attributes.map((a) => a.option).join(" / ") ||
+      (r.parentName && r.name.startsWith(r.parentName) ? r.name.slice(r.parentName.length).replace(/^\s*[—-]\s*/, "") : "") ||
+      r.name;
+    variants.push({ ...item, attributes: r.attributes, label });
+  }
+  if (!variants.length) return null;
+  variants.sort((a, b) => a.variationId - b.variationId);
+
+  const first = rows.find((r) => r.id === variants[0]!.id)!;
+  // Prefer the product-level page (without a variation's attribute query string).
+  const productUrl = variants[0]!.productUrl?.split("?")[0] ?? null;
+  return {
+    store,
+    productId,
+    brandName: variants[0]!.brandName,
+    name: first.parentName ?? first.name,
+    categories: first.categories,
+    description: first.description,
+    shortDescription: first.shortDescription,
+    images: first.images,
+    specs: first.specs,
+    productUrl,
+    variants,
+  };
 }
 
 /** Shipping restrictions from the brand settings in Sanity. */

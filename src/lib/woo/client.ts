@@ -91,6 +91,9 @@ export type WooProduct = {
   stock_status: string;
   categories: WooCategory[];
   images: WooImage[];
+  description: string;
+  short_description: string;
+  attributes: { id: number; name: string; options: string[]; visible: boolean; variation: boolean }[];
   permalink: string;
   parent_id: number;
 };
@@ -104,6 +107,7 @@ export type WooVariation = {
   stock_quantity: number | null;
   stock_status: string;
   image: WooImage | null;
+  description: string;
   permalink: string;
   attributes: { name: string; option: string }[];
   status: string;

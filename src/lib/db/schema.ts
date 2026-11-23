@@ -169,6 +169,15 @@ export const inventory = pgTable(
     retailPrice: numeric("retail_price", { precision: 12, scale: 2 }),
     imageUrl: text("image_url"),
     permalink: text("permalink"),
+    /** Product detail page. Raw HTML from WooCommerce; sanitized when rendered. */
+    description: text("description"),
+    shortDescription: text("short_description"),
+    /** Every product image, main image first. */
+    images: text("images").array().notNull().default([]),
+    /** This variation's options, e.g. [{ name: "Caliber", option: "9mm" }]. Empty for simple products. */
+    attributes: jsonb("attributes").$type<ProductAttribute[]>().notNull().default([]),
+    /** Visible, non-variation product attributes shown as specifications. */
+    specs: jsonb("specs").$type<ProductSpec[]>().notNull().default([]),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("inventory_store_product_variation").on(t.store, t.productId, t.variationId)],
@@ -245,6 +254,8 @@ export const payments = pgTable("payments", {
 
 export type User = typeof users.$inferSelect;
 export type InventoryRow = typeof inventory.$inferSelect;
+export type ProductAttribute = { name: string; option: string };
+export type ProductSpec = { name: string; value: string };
 export type EmailLogRow = typeof emailLog.$inferSelect;
 export type LicenseDocKind =(typeof licenseDocKindEnum.enumValues)[number];
 export type Order = typeof orders.$inferSelect;

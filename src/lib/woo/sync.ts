@@ -6,6 +6,18 @@ import { getStore, type StoreConfig, type StoreKey } from "./stores";
 
 type Row = typeof inventory.$inferInsert;
 
+/** Product-level fields for the detail page, shared by a product's variations. */
+function details(p: WooProduct) {
+  return {
+    description: p.description?.trim() || null,
+    shortDescription: p.short_description?.trim() || null,
+    images: (p.images ?? []).map((i) => i.src).filter(Boolean),
+    specs: (p.attributes ?? [])
+      .filter((a) => a.visible && !a.variation && a.options?.length)
+      .map((a) => ({ name: a.name, value: a.options.join(", ") })),
+  };
+}
+
 function productRow(store: StoreKey, p: WooProduct): Row {
   return {
     store,
@@ -21,6 +33,8 @@ function productRow(store: StoreKey, p: WooProduct): Row {
     retailPrice: p.price || p.regular_price || null,
     imageUrl: p.images[0]?.src ?? null,
     permalink: p.permalink,
+    ...details(p),
+    attributes: [],
     updatedAt: new Date(),
   };
 }
@@ -42,6 +56,10 @@ function variationRow(store: StoreKey, parent: WooProduct, v: WooVariation): Row
     retailPrice: v.price || v.regular_price || null,
     imageUrl: v.image?.src ?? parent.images[0]?.src ?? null,
     permalink: v.permalink || parent.permalink,
+    ...details(parent),
+    // A variation's own description (often a one-liner) replaces the parent's short one.
+    shortDescription: v.description?.trim() || parent.short_description?.trim() || null,
+    attributes: v.attributes.filter((a) => a.option).map((a) => ({ name: a.name, option: a.option })),
     updatedAt: new Date(),
   };
 }
@@ -88,6 +106,11 @@ async function upsert(rows: Row[]) {
           retailPrice: sql`excluded.retail_price`,
           imageUrl: sql`excluded.image_url`,
           permalink: sql`excluded.permalink`,
+          description: sql`excluded.description`,
+          shortDescription: sql`excluded.short_description`,
+          images: sql`excluded.images`,
+          attributes: sql`excluded.attributes`,
+          specs: sql`excluded.specs`,
           updatedAt: sql`excluded.updated_at`,
         },
       });

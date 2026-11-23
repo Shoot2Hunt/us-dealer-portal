@@ -110,6 +110,26 @@ body {
   .nav-link[aria-current="page"] {
     @apply text-white;
   }
+  /* Rendered HTML from WooCommerce product descriptions. */
+  .prose-content {
+    @apply space-y-3 text-sm leading-relaxed text-ink/85;
+  }
+  .prose-content :where(h1, h2, h3, h4) {
+    @apply mt-6 font-display font-semibold text-ink first:mt-0;
+  }
+  .prose-content :where(h1, h2) { @apply text-lg; }
+  .prose-content :where(h3, h4) { @apply text-base; }
+  .prose-content :where(a) { @apply text-accent underline underline-offset-2 hover:text-accent-dark; }
+  .prose-content :where(ul) { @apply list-disc space-y-1 pl-5; }
+  .prose-content :where(ol) { @apply list-decimal space-y-1 pl-5; }
+  .prose-content :where(li)::marker { @apply text-accent; }
+  .prose-content :where(strong, b) { @apply font-semibold text-ink; }
+  .prose-content :where(img) { @apply h-auto max-w-full rounded-lg; }
+  .prose-content :where(iframe) { @apply aspect-video h-auto w-full rounded-lg; }
+  .prose-content :where(table) { @apply w-full border-collapse text-left; }
+  .prose-content :where(th, td) { @apply border border-line px-3 py-1.5; }
+  .prose-content :where(th) { @apply bg-panel font-medium; }
+  .prose-content :where(blockquote) { @apply border-l-4 border-accent/40 pl-4 italic text-muted; }
 }
 
 @media (prefers-reduced-motion: reduce) {
