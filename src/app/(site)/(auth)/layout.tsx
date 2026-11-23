@@ -1,5 +1,6 @@
 import { getSiteSettings } from "@/sanity/content";
 import { SiteFooter } from "@/components/site-footer";
+import { PageTransition } from "@/components/page-transition";
 
 export default async function AuthLayout({ children }: { children: React.ReactNode }) {
   const s = await getSiteSettings();
@@ -23,7 +24,9 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
               </p>
             )}
           </div>
-          <div className="card border-white/10 shadow-2xl shadow-black/40">{children}</div>
+          <div className="card border-white/10 shadow-2xl shadow-black/40">
+            <PageTransition>{children}</PageTransition>
+          </div>
           {(s.supportEmail || s.supportPhone) && (
             <p className="mt-4 text-center text-xs text-white/60">
               Questions? {s.supportEmail} {s.supportPhone && `· ${s.supportPhone}`}

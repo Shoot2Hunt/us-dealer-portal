@@ -132,6 +132,85 @@ body {
   .prose-content :where(blockquote) { @apply border-l-4 border-accent/40 pl-4 italic text-muted; }
 }
 
+/* ---------- Page transitions (View Transitions API, see components/page-transition.tsx) ---------- */
+
+/* Clicks during the short animation reach the live page instead of the overlay. */
+::view-transition {
+  pointer-events: none;
+}
+
+/* Default: old page fades out quickly, new page fades and rises in after it. */
+::view-transition-old(.page-fade) {
+  animation: 140ms ease-in both vt-fade reverse, 140ms ease-in both vt-rise reverse;
+}
+::view-transition-new(.page-fade) {
+  animation: 240ms ease-out 100ms both vt-fade, 360ms var(--ease-out-expo) 100ms both vt-rise;
+}
+
+/* Going deeper (inventory → product): content slides left. Going back: slides right. */
+::view-transition-old(.nav-forward) {
+  --vt-offset: -48px;
+  animation: 150ms ease-in both vt-fade reverse, 380ms ease-in-out both vt-slide reverse;
+}
+::view-transition-new(.nav-forward) {
+  --vt-offset: 48px;
+  animation: 220ms ease-out 130ms both vt-fade, 380ms ease-in-out both vt-slide;
+}
+::view-transition-old(.nav-back) {
+  --vt-offset: 48px;
+  animation: 150ms ease-in both vt-fade reverse, 380ms ease-in-out both vt-slide reverse;
+}
+::view-transition-new(.nav-back) {
+  --vt-offset: -48px;
+  animation: 220ms ease-out 130ms both vt-fade, 380ms ease-in-out both vt-slide;
+}
+
+/* Product photo morphs from the inventory thumbnail into the detail-page hero (and back). */
+::view-transition-group(.morph) {
+  animation-duration: 420ms;
+  animation-timing-function: var(--ease-out-expo);
+}
+::view-transition-image-pair(.morph) {
+  animation-name: vt-via-blur;
+}
+
+/* The sticky header is the fixed point: it never fades or slides. */
+::view-transition-group(site-header) {
+  animation: none;
+  z-index: 100;
+}
+::view-transition-old(site-header) {
+  display: none;
+}
+::view-transition-new(site-header) {
+  animation: none;
+}
+
+@keyframes vt-fade {
+  from { opacity: 0; filter: blur(2px); }
+  to { opacity: 1; filter: blur(0); }
+}
+@keyframes vt-rise {
+  from { translate: 0 12px; }
+  to { translate: 0 0; }
+}
+@keyframes vt-slide {
+  from { translate: var(--vt-offset) 0; }
+  to { translate: 0 0; }
+}
+@keyframes vt-via-blur {
+  30% { filter: blur(3px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(*),
+  ::view-transition-new(*),
+  ::view-transition-group(*) {
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

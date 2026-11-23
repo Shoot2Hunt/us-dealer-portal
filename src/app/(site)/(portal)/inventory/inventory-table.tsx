@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, ViewTransition } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
@@ -275,10 +275,13 @@ function Row({ item }: { item: CatalogItem }) {
     <tr className="border-t border-line align-middle transition-colors duration-150 hover:bg-accent-soft/40">
       <td className="px-3 py-2">
         <div className="flex items-center gap-3">
-          <Link href={href} tabIndex={-1} aria-hidden="true" className="shrink-0">
+          <Link href={href} transitionTypes={["nav-forward"]} tabIndex={-1} aria-hidden="true" className="shrink-0">
             {item.imageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={item.imageUrl} alt="" className="h-10 w-10 rounded relative object-cover ring-1 ring-line transition-transform duration-200 hover:z-10 hover:scale-150 hover:shadow-lg" />
+              // Same name as the product page's main photo, so it morphs between the two.
+              <ViewTransition name={`product-img-${item.id}`} share="morph" default="none">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={item.imageUrl} alt="" className="h-10 w-10 rounded relative object-cover ring-1 ring-line transition-transform duration-200 hover:z-10 hover:scale-150 hover:shadow-lg" />
+              </ViewTransition>
             ) : (
               <div className="flex h-10 w-10 items-center justify-center rounded bg-panel text-muted/50"><span className="icon-[lucide--image] h-5 w-5" aria-hidden="true" /></div>
             )}
@@ -288,6 +291,7 @@ function Row({ item }: { item: CatalogItem }) {
               {item.featured && <span className="badge mr-1 bg-accent/10 text-accent">Featured</span>}
               <Link
                 href={href}
+                transitionTypes={["nav-forward"]}
                 className="group/link inline-flex items-center gap-1 decoration-accent/40 underline-offset-2 transition-colors hover:text-accent hover:underline"
               >
                 {item.name}

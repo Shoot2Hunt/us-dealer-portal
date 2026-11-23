@@ -35,11 +35,11 @@ export default async function ProductPage({ params, searchParams }: PageProps<"/
   return (
     <div className="space-y-10">
       <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-1.5 text-sm text-muted">
-        <Link href="/inventory" className="inline-flex items-center gap-1 transition-colors hover:text-accent">
+        <Link href="/inventory" transitionTypes={["nav-back"]} className="inline-flex items-center gap-1 transition-colors hover:text-accent">
           <span className="icon-[lucide--boxes] h-4 w-4" aria-hidden="true" /> Inventory
         </Link>
         <span className="icon-[lucide--chevron-right] h-3.5 w-3.5 opacity-50" aria-hidden="true" />
-        <Link href={`/inventory?brand=${encodeURIComponent(product.store)}`} className="transition-colors hover:text-accent">
+        <Link href={`/inventory?brand=${encodeURIComponent(product.store)}`} transitionTypes={["nav-back"]} className="transition-colors hover:text-accent">
           {product.brandName}
         </Link>
         <span className="icon-[lucide--chevron-right] h-3.5 w-3.5 opacity-50" aria-hidden="true" />
@@ -88,6 +88,7 @@ export default async function ProductPage({ params, searchParams }: PageProps<"/
             <Link
               key={c}
               href={`/inventory?cat=${encodeURIComponent(c)}`}
+              transitionTypes={["nav-back"]}
               className="badge bg-panel text-ink transition-colors hover:bg-accent-soft hover:text-accent-dark"
             >
               {categoryLabel(c)}

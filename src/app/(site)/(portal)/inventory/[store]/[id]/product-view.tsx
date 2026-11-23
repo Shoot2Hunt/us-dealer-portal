@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, ViewTransition } from "react";
 import type { ProductDetail, ProductVariant } from "@/lib/catalog";
 import { flyToCart, useCart, usd } from "@/components/cart";
 
@@ -37,7 +37,7 @@ export function ProductView({ product, initialVariantId }: Props) {
 
   return (
     <div className="grid gap-8 lg:grid-cols-2 lg:gap-12">
-      <Gallery images={images} shown={shown} onPick={setActiveImage} name={product.name} />
+      <Gallery images={images} shown={shown} onPick={setActiveImage} name={product.name} morphName={`product-img-${variant.id}`} />
 
       <div className="space-y-6">
         <div className="space-y-2">
@@ -139,9 +139,11 @@ export function ProductView({ product, initialVariantId }: Props) {
   );
 }
 
-function Gallery({ images, shown, onPick, name }: { images: string[]; shown: string | null; onPick: (src: string) => void; name: string }) {
+function Gallery({ images, shown, onPick, name, morphName }: { images: string[]; shown: string | null; onPick: (src: string) => void; name: string; morphName: string }) {
   // Hover-to-zoom: the image scales up around the pointer.
   const [origin, setOrigin] = useState<string | null>(null);
+  // The first photo arrives via the page-transition morph; only later switches fade in.
+  const [firstShown] = useState(shown);
   return (
     <div className="space-y-3">
       <div
@@ -153,14 +155,17 @@ function Gallery({ images, shown, onPick, name }: { images: string[]; shown: str
         onMouseLeave={() => setOrigin(null)}
       >
         {shown ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            key={shown}
-            src={shown}
-            alt={name}
-            style={{ transformOrigin: origin ?? "center" }}
-            className={`h-full w-full animate-fade-in object-contain p-4 transition-transform duration-300 ${origin ? "scale-[1.8] cursor-zoom-in" : ""}`}
-          />
+          // Same name as the inventory thumbnail, so the photo morphs between the two pages.
+          <ViewTransition name={morphName} share="morph" default="none">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              key={shown}
+              src={shown}
+              alt={name}
+              style={{ transformOrigin: origin ?? "center" }}
+              className={`h-full w-full object-contain p-4 transition-transform duration-300 ${shown !== firstShown ? "animate-fade-in" : ""} ${origin ? "scale-[1.8] cursor-zoom-in" : ""}`}
+            />
+          </ViewTransition>
         ) : (
           <div className="flex h-full items-center justify-center text-muted/40">
             <span className="icon-[lucide--image] h-20 w-20" aria-hidden="true" />

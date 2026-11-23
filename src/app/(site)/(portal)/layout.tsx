@@ -5,6 +5,7 @@ import { CartProvider } from "@/components/cart";
 import { CartDrawer } from "@/components/cart-drawer";
 import { CartLink } from "@/components/cart-link";
 import { NavLink } from "@/components/nav-link";
+import { PageTransition } from "@/components/page-transition";
 import { SiteFooter } from "@/components/site-footer";
 import { UserMenu } from "@/components/user-menu";
 
@@ -13,7 +14,7 @@ export default async function PortalLayout({ children }: { children: React.React
   const [s, pages] = await Promise.all([getSiteSettings(), getNavPages()]);
   return (
     <CartProvider userId={user.id}>
-      <header className="sticky top-0 z-40 border-b-2 border-accent bg-linear-to-r from-ink via-ink-soft to-[#3a2218] text-white shadow-md shadow-ink/10">
+      <header style={{ viewTransitionName: "site-header" }} className="sticky top-0 z-40 border-b-2 border-accent bg-linear-to-r from-ink via-ink-soft to-[#3a2218] text-white shadow-md shadow-ink/10">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-8 gap-y-2 px-4 py-3">
           <Link href="/" className="group flex items-center gap-2.5 font-display text-lg font-bold tracking-tight">
             {s.logoUrl ? (
@@ -48,7 +49,9 @@ export default async function PortalLayout({ children }: { children: React.React
           </div>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8">{children}</main>
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8">
+        <PageTransition>{children}</PageTransition>
+      </main>
       <SiteFooter />
       <CartDrawer />
     </CartProvider>
