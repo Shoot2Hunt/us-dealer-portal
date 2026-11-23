@@ -1,7 +1,17 @@
 import Link from "next/link";
 import { getBrands, getSiteSettings } from "@/sanity/content";
-import { getStore, isStoreKey } from "@/lib/woo/stores";
+import { getStore, isStoreKey, STORES } from "@/lib/woo/stores";
 import { LEGAL_PAGES } from "@/lib/legal";
+
+/**
+ * Light-on-dark logos in /public/brands, made for the dark footer. They win over the
+ * Sanity logo, which may be a dark version meant for white backgrounds.
+ */
+const FOOTER_LOGOS: Record<string, string> = {
+  "unknown-suppressors": "/brands/unknown-suppressors.png",
+  "salmon-river-solutions": "/brands/salmon-river-solutions.png",
+  shoot2hunt: "/brands/shoot2hunt.webp",
+};
 
 /** Brand site: the URL set in Sanity, else the store's WooCommerce URL. */
 function brandWebsite(website: string | undefined, storeKey: string): string | null {
@@ -20,9 +30,11 @@ const displayHost = (url: string) => {
 export async function SiteFooter() {
   const [s, brands] = await Promise.all([getSiteSettings(), getBrands()]);
   const portalName = s.portalName ?? "Dealer Portal";
-  const sites = brands
+  // No brands in Sanity (or Sanity unreachable): fall back to the four built-in stores.
+  const sourced = brands.length ? brands : STORES.map((st) => ({ name: st.name, storeKey: st.key, active: true, logoUrl: undefined, website: undefined }));
+  const sites = sourced
     .filter((b) => b.active)
-    .map((b) => ({ ...b, url: brandWebsite(b.website, b.storeKey) }));
+    .map((b) => ({ ...b, logo: FOOTER_LOGOS[b.storeKey] ?? b.logoUrl, url: brandWebsite(b.website, b.storeKey) }));
   const year = new Date().getFullYear();
   const heading = "mb-4 font-display text-xs font-semibold uppercase tracking-widest text-accent-light";
   const link = "group inline-flex items-center gap-2 text-white/70 transition-colors hover:text-white";
@@ -74,12 +86,12 @@ export async function SiteFooter() {
               {sites.map((b) => {
                 const tile = (
                   <>
-                    <span className="flex h-16 w-full items-center justify-center rounded-lg bg-white p-2.5 shadow-sm transition duration-200 group-hover:-translate-y-1 group-hover:shadow-lg group-hover:shadow-accent/20">
-                      {b.logoUrl ? (
+                    <span className="flex h-16 w-full items-center justify-center rounded-lg bg-white/5 p-3 ring-1 ring-white/10 transition duration-200 group-hover:-translate-y-1 group-hover:bg-white/10 group-hover:shadow-lg group-hover:shadow-accent/20 group-hover:ring-accent-light/40">
+                      {b.logo ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={b.logoUrl} alt={b.name} className="max-h-full max-w-full object-contain" />
+                        <img src={b.logo} alt={b.name} loading="lazy" className="max-h-full max-w-full object-contain transition-transform duration-200 group-hover:scale-105" />
                       ) : (
-                        <span className="text-center font-display text-xs font-bold text-ink">{b.name}</span>
+                        <span className="text-center font-display text-xs font-bold text-white">{b.name}</span>
                       )}
                     </span>
                     <span className="flex items-center gap-1 text-xs text-white/60 transition-colors group-hover:text-white">
