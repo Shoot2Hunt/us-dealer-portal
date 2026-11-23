@@ -4,7 +4,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import type { CatalogItem } from "@/lib/catalog";
-import { useCart, usd } from "@/components/cart";
+import { flyToCart, useCart, usd } from "@/components/cart";
 import {
   applyFilters, categoryLabel, countBy, DEFAULT_FILTERS, filtersFromParams, filtersToQuery, pageList,
   PAGE_SIZES, SORT_OPTIONS, sortItems, STOCK_OPTIONS, type Filters,
@@ -69,7 +69,7 @@ export function InventoryTable({ initial }: { initial: Data }) {
   const clearAll = () => setFilters((x) => ({ ...DEFAULT_FILTERS, sort: x.sort, size: x.size }));
 
   return (
-    <div ref={topRef} className="scroll-mt-4">
+    <div ref={topRef} className="scroll-mt-24">
       {/* Top bar: search, sort, live status */}
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <input
@@ -143,7 +143,7 @@ export function InventoryTable({ initial }: { initial: Data }) {
 
           <div className="overflow-x-auto rounded-lg border border-line">
             <table className="w-full text-sm">
-              <thead className="bg-panel text-left text-xs uppercase tracking-wide text-muted">
+              <thead className="bg-linear-to-r from-panel to-accent-soft/60 text-left font-display text-xs uppercase tracking-wide text-muted">
                 <tr>
                   <th className="px-3 py-2">Product</th>
                   <th className="px-3 py-2">Brand</th>
@@ -270,14 +270,14 @@ function Row({ item }: { item: CatalogItem }) {
   const orderable = item.inStock && !item.restriction && item.dealerPrice !== null;
 
   return (
-    <tr className="border-t border-line align-middle">
+    <tr className="border-t border-line align-middle transition-colors duration-150 hover:bg-accent-soft/40">
       <td className="px-3 py-2">
         <div className="flex items-center gap-3">
           {item.imageUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={item.imageUrl} alt="" className="h-10 w-10 rounded object-cover" />
+            <img src={item.imageUrl} alt="" className="h-10 w-10 rounded relative object-cover ring-1 ring-line transition-transform duration-200 hover:z-10 hover:scale-150 hover:shadow-lg" />
           ) : (
-            <div className="h-10 w-10 rounded bg-panel" />
+            <div className="flex h-10 w-10 items-center justify-center rounded bg-panel text-muted/50"><span className="icon-[lucide--image] h-5 w-5" aria-hidden="true" /></div>
           )}
           <div>
             <p className="font-medium">
@@ -319,17 +319,26 @@ function Row({ item }: { item: CatalogItem }) {
               className="input w-20"
             />
             <button
-              className="btn-ghost"
-              onClick={() => {
+              className={`btn-ghost min-w-22 ${added ? "border-green-600 bg-green-600 text-white hover:border-green-600 hover:bg-green-600" : "hover:border-accent hover:bg-accent hover:text-white"}`}
+              onClick={(e) => {
                 cart.add(
                   { id: item.id, name: item.name, sku: item.sku, brandName: item.brandName, store: item.store, unitPrice: item.dealerPrice!, minQuantity: item.minQuantity },
                   qty,
                 );
                 setAdded(true);
                 setTimeout(() => setAdded(false), 1500);
+                void flyToCart(e.currentTarget).then(cart.bump);
               }}
             >
-              {added ? "Added" : "Add"}
+              {added ? (
+                <span key="added" className="inline-flex animate-pop-in items-center gap-1.5">
+                  <span className="icon-[lucide--check] h-4 w-4" aria-hidden="true" /> Added
+                </span>
+              ) : (
+                <span key="add" className="inline-flex items-center gap-1.5">
+                  <span className="icon-[lucide--shopping-cart] h-4 w-4" aria-hidden="true" /> Add
+                </span>
+              )}
             </button>
           </div>
         )}

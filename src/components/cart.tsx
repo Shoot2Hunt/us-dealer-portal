@@ -24,6 +24,13 @@ type Cart = {
   setQuantity: (id: number, quantity: number) => void;
   remove: (id: number) => void;
   clear: () => void;
+  /** Flyout cart drawer. */
+  isOpen: boolean;
+  open: () => void;
+  close: () => void;
+  /** Increments each time something lands in the cart; drives the header icon's bump animation. */
+  bumpKey: number;
+  bump: () => void;
 };
 
 const CartContext = createContext<Cart | null>(null);
@@ -86,6 +93,12 @@ export function CartProvider({ userId, children }: { userId: string; children: R
     [storageKey],
   );
 
+  const [isOpen, setIsOpen] = useState(false);
+  const [bumpKey, setBumpKey] = useState(0);
+  const open = useCallback(() => setIsOpen(true), []);
+  const close = useCallback(() => setIsOpen(false), []);
+  const bump = useCallback(() => setBumpKey((k) => k + 1), []);
+
   const value = useMemo<Cart>(
     () => ({
       lines,
@@ -99,8 +112,13 @@ export function CartProvider({ userId, children }: { userId: string; children: R
       setQuantity: (id, quantity) => save(lines.map((l) => (l.id === id ? { ...l, quantity: Math.max(1, quantity) } : l))),
       remove: (id) => save(lines.filter((l) => l.id !== id)),
       clear: () => save([]),
+      isOpen,
+      open,
+      close,
+      bumpKey,
+      bump,
     }),
-    [lines, save, priceNotice],
+    [lines, save, priceNotice, isOpen, open, close, bumpKey, bump],
   );
 
   return <CartContext value={value}>{children}</CartContext>;
@@ -113,3 +131,47 @@ export function useCart() {
 }
 
 export const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+
+/**
+ * Animates a small parcel from `from` (e.g. the Add button) along an arc into the header
+ * cart icon (`[data-cart-target]`). Resolves when it lands, or straight away when there is
+ * nowhere to fly to or the user prefers reduced motion.
+ */
+export function flyToCart(from: Element): Promise<void> {
+  const target = document.querySelector("[data-cart-target]");
+  if (!target || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return Promise.resolve();
+
+  const a = from.getBoundingClientRect();
+  const b = target.getBoundingClientRect();
+  const size = 28;
+  const x0 = a.left + a.width / 2 - size / 2;
+  const y0 = a.top + a.height / 2 - size / 2;
+  const dx = b.left + b.width / 2 - size / 2 - x0;
+  const dy = b.top + b.height / 2 - size / 2 - y0;
+
+  const dot = document.createElement("div");
+  dot.setAttribute("aria-hidden", "true");
+  dot.className =
+    "pointer-events-none fixed z-[100] flex items-center justify-center rounded-full bg-linear-to-br from-accent-light to-accent text-white shadow-lg shadow-accent/40";
+  Object.assign(dot.style, { left: `${x0}px`, top: `${y0}px`, width: `${size}px`, height: `${size}px` });
+  const icon = document.createElement("span");
+  icon.className = "icon-[lucide--package] h-4 w-4";
+  dot.append(icon);
+  document.body.append(dot);
+
+  // The midpoint is lifted above both ends, so the parcel travels in an arc.
+  const lift = Math.min(160, Math.abs(dy) / 2 + 60);
+  const anim = dot.animate(
+    [
+      { transform: "translate(0, 0) scale(0.6)", opacity: 0 },
+      { transform: "translate(0, -12px) scale(1.1)", opacity: 1, offset: 0.12 },
+      { transform: `translate(${dx * 0.55}px, ${Math.min(0, dy) * 0.55 - lift}px) scale(1)`, opacity: 1, offset: 0.55 },
+      { transform: `translate(${dx}px, ${dy}px) scale(0.35)`, opacity: 0.6 },
+    ],
+    { duration: 700, easing: "cubic-bezier(0.45, 0, 0.25, 1)" },
+  );
+  return anim.finished.then(
+    () => dot.remove(),
+    () => dot.remove(),
+  );
+}

@@ -33,7 +33,7 @@ export default async function AccountPage() {
 
   return (
     <div className="grid gap-8 lg:grid-cols-[200px_1fr]">
-      <aside className="lg:sticky lg:top-6 lg:self-start">
+      <aside className="lg:sticky lg:top-24 lg:self-start">
         <h1 className="text-2xl font-semibold tracking-tight">Your account</h1>
         <nav className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-sm lg:flex-col">
           {sections.map(([id, label]) => (
@@ -43,7 +43,7 @@ export default async function AccountPage() {
       </aside>
 
       <div className="max-w-3xl space-y-8">
-        <section id="profile" className="scroll-mt-6 space-y-4">
+        <section id="profile" className="scroll-mt-24 space-y-4">
           <h2 className="text-lg font-semibold">Profile</h2>
           <div className="card grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
             <Fact label="Email" value={user.email} />
@@ -63,7 +63,7 @@ export default async function AccountPage() {
           <ProfileForm name={user.name} phone={user.phone ?? ""} address={isDealer ? (user.shippingAddress ?? null) : undefined} />
         </section>
 
-        <section id="password" className="scroll-mt-6 space-y-4">
+        <section id="password" className="scroll-mt-24 space-y-4">
           <div>
             <h2 className="text-lg font-semibold">Password</h2>
             <p className="text-sm text-muted">
@@ -73,7 +73,7 @@ export default async function AccountPage() {
           <PasswordForm />
         </section>
 
-        <section id="two-factor" className="scroll-mt-6 space-y-4">
+        <section id="two-factor" className="scroll-mt-24 space-y-4">
           <div>
             <h2 className="text-lg font-semibold">Two-step verification</h2>
             <p className="text-sm text-muted">
@@ -89,7 +89,7 @@ export default async function AccountPage() {
           />
         </section>
 
-        <section id="sessions" className="scroll-mt-6 space-y-4">
+        <section id="sessions" className="scroll-mt-24 space-y-4">
           <div>
             <h2 className="text-lg font-semibold">Signed-in devices</h2>
             <p className="text-sm text-muted">
