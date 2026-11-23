@@ -19,14 +19,6 @@ function brandWebsite(website: string | undefined, storeKey: string): string | n
   return isStoreKey(storeKey) ? getStore(storeKey).url || null : null;
 }
 
-const displayHost = (url: string) => {
-  try {
-    return new URL(url).host.replace(/^www\./, "");
-  } catch {
-    return url;
-  }
-};
-
 export async function SiteFooter() {
   const [s, brands] = await Promise.all([getSiteSettings(), getBrands()]);
   const portalName = s.portalName ?? "Dealer Portal";
@@ -85,30 +77,24 @@ export async function SiteFooter() {
             <ul className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               {sites.map((b) => {
                 const tile = (
-                  <>
-                    <span className="flex h-16 w-full items-center justify-center rounded-lg bg-white/5 p-3 ring-1 ring-white/10 transition duration-200 group-hover:-translate-y-1 group-hover:bg-white/10 group-hover:shadow-lg group-hover:shadow-accent/20 group-hover:ring-accent-light/40">
-                      {b.logo ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={b.logo} alt={b.name} loading="lazy" className="max-h-full max-w-full object-contain transition-transform duration-200 group-hover:scale-105" />
-                      ) : (
-                        <span className="text-center font-display text-xs font-bold text-white">{b.name}</span>
-                      )}
-                    </span>
-                    <span className="flex items-center gap-1 text-xs text-white/60 transition-colors group-hover:text-white">
-                      {b.url ? displayHost(b.url) : b.name}
-                      {b.url && <span className="icon-[lucide--arrow-up-right] h-3 w-3 transition-transform group-hover:-translate-y-px group-hover:translate-x-px" aria-hidden="true" />}
-                    </span>
-                  </>
+                  <span className="flex h-16 w-full items-center justify-center rounded-lg bg-white/5 p-3 ring-1 ring-white/10 transition duration-200 group-hover:-translate-y-1 group-hover:bg-white/10 group-hover:shadow-lg group-hover:shadow-accent/20 group-hover:ring-accent-light/40">
+                    {b.logo ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={b.logo} alt={b.name} loading="lazy" className="max-h-full max-w-full object-contain transition-transform duration-200 group-hover:scale-105" />
+                    ) : (
+                      <span className="text-center font-display text-xs font-bold text-white">{b.name}</span>
+                    )}
+                  </span>
                 );
                 return (
                   <li key={b.storeKey}>
                     {b.url ? (
-                      <a href={b.url} target="_blank" rel="noopener noreferrer" className="group flex flex-col items-start gap-2" title={`Visit ${b.name}`}>
+                      <a href={b.url} target="_blank" rel="noopener noreferrer" className="group block" title={`Visit ${b.name}`}>
                         {tile}
                         <span className="sr-only">(opens in a new tab)</span>
                       </a>
                     ) : (
-                      <div className="group flex flex-col items-start gap-2">{tile}</div>
+                      <div className="group block">{tile}</div>
                     )}
                   </li>
                 );

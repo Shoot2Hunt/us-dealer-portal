@@ -274,15 +274,36 @@ function Row({ item }: { item: CatalogItem }) {
       <td className="px-3 py-2">
         <div className="flex items-center gap-3">
           {item.imageUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={item.imageUrl} alt="" className="h-10 w-10 rounded relative object-cover ring-1 ring-line transition-transform duration-200 hover:z-10 hover:scale-150 hover:shadow-lg" />
+            item.productUrl ? (
+              <a href={item.productUrl} target="_blank" rel="noopener noreferrer" tabIndex={-1} aria-hidden="true" className="shrink-0">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={item.imageUrl} alt="" className="h-10 w-10 rounded relative object-cover ring-1 ring-line transition-transform duration-200 hover:z-10 hover:scale-150 hover:shadow-lg" />
+              </a>
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={item.imageUrl} alt="" className="h-10 w-10 rounded relative object-cover ring-1 ring-line transition-transform duration-200 hover:z-10 hover:scale-150 hover:shadow-lg" />
+            )
           ) : (
             <div className="flex h-10 w-10 items-center justify-center rounded bg-panel text-muted/50"><span className="icon-[lucide--image] h-5 w-5" aria-hidden="true" /></div>
           )}
           <div>
             <p className="font-medium">
               {item.featured && <span className="badge mr-1 bg-accent/10 text-accent">Featured</span>}
-              {item.name}
+              {item.productUrl ? (
+                <a
+                  href={item.productUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={`View on ${item.brandName}`}
+                  className="group/link inline-flex items-center gap-1 decoration-accent/40 underline-offset-2 transition-colors hover:text-accent hover:underline"
+                >
+                  {item.name}
+                  <span className="icon-[lucide--external-link] h-3.5 w-3.5 shrink-0 text-muted opacity-0 transition-opacity group-hover/link:opacity-100" aria-hidden="true" />
+                  <span className="sr-only">(opens {item.brandName} in a new tab)</span>
+                </a>
+              ) : (
+                item.name
+              )}
             </p>
             <p className="text-xs text-muted">
               {item.sku ?? "No SKU"}

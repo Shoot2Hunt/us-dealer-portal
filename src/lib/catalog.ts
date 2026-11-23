@@ -28,6 +28,8 @@ export type CatalogItem = {
   featured: boolean;
   dealerNote?: string;
   imageUrl: string | null;
+  /** The product page on the brand's own store, when it is a plain http(s) link. */
+  productUrl: string | null;
   /** Set when this dealer can't order the item, e.g. SOT required. */
   restriction?: string;
   updatedAt: string;
@@ -99,6 +101,7 @@ export function toCatalogItem(row: InventoryRow, user: User, ctx: CatalogContext
     featured: o?.featured ?? false,
     dealerNote: o?.dealerNote,
     imageUrl: row.imageUrl,
+    productUrl: row.permalink && /^https?:\/\//i.test(row.permalink) ? row.permalink : null,
     restriction,
     updatedAt: row.updatedAt.toISOString(),
   };
