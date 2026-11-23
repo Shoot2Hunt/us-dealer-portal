@@ -1,7 +1,8 @@
 import "server-only";
 import { and, eq, getTableColumns, inArray } from "drizzle-orm";
 import { db, inventory, type InventoryRow, type ProductAttribute, type ProductSpec, type User } from "@/lib/db";
-import { getBrands, getProductOverrides, type Brand, type ProductOverride } from "@/sanity/content";
+import { getBrands, getProductOverrides, getPromotions, type Brand, type ProductOverride, type Promotion } from "@/sanity/content";
+import { bestPromotion, computePrice, isCurrent, type PriceReason } from "@/lib/pricing";
 import { hasCurrentSot } from "@/lib/auth/session";
 import { storeName } from "@/lib/woo/stores";
 import { getTierStatus, type Tier } from "@/lib/tiers";
@@ -22,10 +23,12 @@ export type CatalogItem = {
   stockStatus: string;
   inStock: boolean;
   retailPrice: number | null;
-  /** What this dealer pays: the lower of their normal dealer price and their tier price. */
+  /** What this dealer pays: the lowest of the admin/sale price, promotion and tier price (src/lib/pricing.ts). */
   dealerPrice: number | null;
-  /** Set (e.g. "Tier 2") when the tier discount is what made dealerPrice. */
-  tierApplied?: string;
+  /** The regular dealer price, shown crossed out, when dealerPrice is lower. */
+  compareAtPrice: number | null;
+  /** Why dealerPrice is lower: a sale, a promotion (its title) or the dealer's tier. */
+  priceReason: PriceReason | null;
   minQuantity: number;
   featured: boolean;
   dealerNote?: string;
@@ -42,23 +45,24 @@ export type CatalogContext = {
   overrides: Map<string, ProductOverride>;
   /** The viewing dealer's volume tier (src/lib/tiers.ts), if they have one. */
   tier: Tier | null;
+  /** Promotions with an automatic % off (Studio → Promotions). */
+  promotions: Promotion[];
 };
 
 /** Pass the user so their volume tier is applied to prices. */
 export async function loadCatalogContext(user: User): Promise<CatalogContext> {
-  const [brands, overrides, tier] = await Promise.all([
+  const [brands, overrides, tier, promotions] = await Promise.all([
     getBrands(),
     getProductOverrides(),
     user.role === "dealer" ? getTierStatus(user.id).then((s) => s.tier) : null,
+    getPromotions(),
   ]);
-  return { brands, overrides: new Map(overrides.filter((o) => o.sku).map((o) => [`${o.storeKey}:${o.sku}`, o])), tier };
-}
-
-/** Lower of the normal dealer price and the tier price. Discounts never stack. */
-function bestPrice(normal: number | null, retail: number | null, tier: Tier | null): { price: number | null; tierApplied?: string } {
-  const tierPrice = tier && retail !== null ? Math.round(retail * (100 - tier.percentOff)) / 100 : null;
-  if (tierPrice !== null && (normal === null || tierPrice < normal)) return { price: tierPrice, tierApplied: tier!.name };
-  return { price: normal };
+  return {
+    brands,
+    overrides: new Map(overrides.filter((o) => o.sku).map((o) => [`${o.storeKey}:${o.sku}`, o])),
+    tier,
+    promotions: promotions.filter((p) => p.percentOff > 0),
+  };
 }
 
 function visibleStores(user: User, ctx: CatalogContext): string[] | null {
@@ -82,9 +86,14 @@ export function toCatalogItem(row: CatalogRow, user: User, ctx: CatalogContext):
   if (o?.hidden) return null;
 
   const retail = row.retailPrice ? Number(row.retailPrice) : null;
-  const discount = brand?.dealerDiscountPercent ?? 0;
-  const normalPrice = o?.dealerPrice ?? (retail !== null ? Math.round(retail * (100 - discount)) / 100 : null);
-  const { price: dealerPrice, tierApplied } = bestPrice(normalPrice, retail, ctx.tier);
+  const priced = computePrice({
+    retail,
+    brandDiscountPercent: brand?.dealerDiscountPercent ?? 0,
+    // The admin's price only counts inside its optional sale dates.
+    adminPrice: typeof o?.dealerPrice === "number" && isCurrent(o.saleStarts, o.saleEnds) ? o.dealerPrice : null,
+    promotion: bestPromotion(ctx.promotions, row),
+    tier: ctx.tier,
+  });
 
   let restriction: string | undefined;
   const needsSot = brand?.sotRequiredCategories?.some((c) => row.categories.includes(c));
@@ -105,8 +114,9 @@ export function toCatalogItem(row: CatalogRow, user: User, ctx: CatalogContext):
     stockStatus: row.stockStatus,
     inStock: inStock && (!row.manageStock || row.stockStatus === "onbackorder" || (row.stockQuantity ?? 0) > 0),
     retailPrice: retail,
-    dealerPrice,
-    tierApplied,
+    dealerPrice: priced.price,
+    compareAtPrice: priced.compareAt,
+    priceReason: priced.reason,
     minQuantity: o?.minQuantity ?? 1,
     featured: o?.featured ?? false,
     dealerNote: o?.dealerNote,

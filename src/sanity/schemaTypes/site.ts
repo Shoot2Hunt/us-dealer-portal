@@ -26,6 +26,7 @@ export const NAV_ICONS = [
   { title: "Tag (deals)", value: "tag" },
   { title: "Star", value: "star" },
   { title: "Info", value: "info" },
+  { title: "Percent (promotions)", value: "percent" },
 ];
 
 const linkFields = [

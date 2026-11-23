@@ -217,7 +217,11 @@ export const orders = pgTable("orders", {
   number: serial("number").notNull(),
   userId: uuid("user_id").notNull(),
   status: orderStatusEnum("status").notNull(),
+  /** What was charged: line totals minus discountTotal. */
   total: numeric("total", { precision: 12, scale: 2 }).notNull(),
+  /** Discount code used (upper-case), if any. Counted for the code's usage limits. */
+  discountCode: text("discount_code"),
+  discountTotal: numeric("discount_total", { precision: 12, scale: 2 }).notNull().default("0"),
   shippingAddress: jsonb("shipping_address").$type<Address>().notNull(),
   poNumber: text("po_number"),
   notes: text("notes"),
@@ -234,6 +238,8 @@ export const orderLines = pgTable("order_lines", {
   name: text("name").notNull(),
   quantity: integer("quantity").notNull(),
   unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).notNull(),
+  /** This line's share of the order's discount code, in dollars. */
+  discount: numeric("discount", { precision: 12, scale: 2 }).notNull().default("0"),
 });
 
 /** One WooCommerce order per brand per portal order. */

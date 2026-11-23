@@ -104,6 +104,9 @@ export type ProductOverride = {
   minQuantity?: number;
   featured?: boolean;
   dealerNote?: string;
+  /** Optional window for dealerPrice; outside it the normal price applies. */
+  saleStarts?: string;
+  saleEnds?: string;
 };
 
 export type Announcement = { _id: string; title: string; body?: string };
@@ -140,7 +143,7 @@ export async function getBrands(): Promise<Brand[]> {
 export async function getProductOverrides(): Promise<ProductOverride[]> {
   return (
     (await q<ProductOverride[]>(
-      `*[_type == "productOverride"]{"storeKey": brand->storeKey, sku, hidden, dealerPrice, minQuantity, featured, dealerNote}`,
+      `*[_type == "productOverride"]{"storeKey": brand->storeKey, sku, hidden, dealerPrice, saleStarts, saleEnds, minQuantity, featured, dealerNote}`,
     )) ?? []
   );
 }
@@ -288,4 +291,79 @@ export async function getPluginSettings(): Promise<PluginSettings> {
       until: ((u) => (u && Date.parse(u) > Date.now() ? u : undefined))(str(m.until)),
     },
   };
+}
+
+// --- Promotions & discount codes ---
+
+export type Promotion = {
+  id: string;
+  title: string;
+  summary?: string;
+  imageUrl?: string;
+  startsAt?: string;
+  endsAt?: string;
+  /** 0 for showcase-only promotions. */
+  percentOff: number;
+  brands: string[];
+  categories: string[];
+  skus: string[];
+  code?: { code: string; description?: string; type: "percent" | "amount"; value: number };
+};
+
+/** Promotions that are on and haven't ended (including ones scheduled to start later). */
+export async function getPromotions(): Promise<Promotion[]> {
+  const rows = await q<(Omit<Promotion, "percentOff" | "brands" | "categories" | "skus"> & Partial<Pick<Promotion, "percentOff" | "brands" | "categories" | "skus">>)[]>(
+    `*[_type == "promotion" && active != false && (!defined(endsAt) || endsAt > now())] | order(sortOrder asc, _createdAt desc){
+      "id": _id, title, summary, "imageUrl": image.asset->url, startsAt, endsAt, percentOff, brands, categories, skus,
+      "code": select(discountCode->active != false => discountCode->{ "code": upper(code), description, type, value })
+    }`,
+  );
+  return (rows ?? []).map((r) => ({
+    ...r,
+    percentOff: typeof r.percentOff === "number" && r.percentOff > 0 && r.percentOff <= 90 ? r.percentOff : 0,
+    brands: r.brands ?? [],
+    categories: r.categories ?? [],
+    skus: r.skus ?? [],
+    code: r.code?.code ? r.code : undefined,
+  }));
+}
+
+export type DiscountCodeDoc = {
+  id: string;
+  code: string;
+  description?: string;
+  type: "percent" | "amount";
+  value: number;
+  startsAt?: string;
+  endsAt?: string;
+  minSubtotal?: number;
+  maxUses?: number;
+  maxUsesPerDealer?: number;
+  brands: string[];
+  categories: string[];
+  skus: string[];
+};
+
+/**
+ * Look up a code (case-insensitive). Not cached: a code switched off or used up in Studio
+ * must stop working at checkout immediately.
+ */
+export async function findDiscountCode(code: string): Promise<DiscountCodeDoc | null> {
+  if (projectId === "replaceme") return null;
+  const clean = code.trim().toUpperCase();
+  if (!/^[A-Z0-9-]{3,30}$/.test(clean)) return null;
+  try {
+    const d = await sanity.fetch<(Omit<DiscountCodeDoc, "brands" | "categories" | "skus"> & Partial<Pick<DiscountCodeDoc, "brands" | "categories" | "skus">>) | null>(
+      `*[_type == "discountCode" && active != false && upper(code) == $code][0]{
+        "id": _id, "code": upper(code), description, type, value, startsAt, endsAt, minSubtotal, maxUses, maxUsesPerDealer, brands, categories, skus
+      }`,
+      { code: clean },
+      { cache: "no-store" },
+    );
+    if (!d || (d.type !== "percent" && d.type !== "amount") || !(d.value > 0)) return null;
+    return { ...d, brands: d.brands ?? [], categories: d.categories ?? [], skus: d.skus ?? [] };
+  } catch (err) {
+    console.error("Sanity discount code lookup failed", err);
+    return null;
+  }
 }

@@ -18,6 +18,8 @@ export type Filters = {
   max: string;
   orderable: boolean;
   featured: boolean;
+  /** Only items with a sale, promotion or tier price below the regular dealer price. */
+  sale: boolean;
   sort: SortKey;
   size: number;
   page: number;
@@ -43,7 +45,7 @@ export const SORT_OPTIONS: [SortKey, string][] = [
 ];
 
 export const DEFAULT_FILTERS: Filters = {
-  q: "", brands: [], cats: [], stock: "any", min: "", max: "", orderable: false, featured: false, sort: "featured", size: 50, page: 1,
+  q: "", brands: [], cats: [], stock: "any", min: "", max: "", orderable: false, featured: false, sale: false, sort: "featured", size: 50, page: 1,
 };
 
 const list = (v: string | null) => (v ? v.split(",").filter(Boolean) : []);
@@ -62,6 +64,7 @@ export function filtersFromParams(p: URLSearchParams): Filters {
     max: p.get("max") ?? "",
     orderable: p.get("orderable") === "1",
     featured: p.get("featured") === "1",
+    sale: p.get("sale") === "1",
     sort: oneOf(p.get("sort"), SORT_OPTIONS, "featured"),
     size: (PAGE_SIZES as readonly number[]).includes(size) ? size : DEFAULT_FILTERS.size,
     page: Number.isInteger(page) && page > 0 ? page : 1,
@@ -79,6 +82,7 @@ export function filtersToQuery(f: Filters): string {
   if (f.max) p.set("max", f.max);
   if (f.orderable) p.set("orderable", "1");
   if (f.featured) p.set("featured", "1");
+  if (f.sale) p.set("sale", "1");
   if (f.sort !== "featured") p.set("sort", f.sort);
   if (f.size !== DEFAULT_FILTERS.size) p.set("size", String(f.size));
   if (f.page > 1) p.set("page", String(f.page));
@@ -119,6 +123,7 @@ export function applyFilters(items: CatalogItem[], f: Filters, skip?: "brands" |
     if (!matchesStock(i, f.stock)) return false;
     if (f.orderable && (i.restriction || !i.inStock || i.dealerPrice === null)) return false;
     if (f.featured && !i.featured) return false;
+    if (f.sale && i.compareAtPrice === null) return false;
     if ((min !== null && !Number.isNaN(min)) || (max !== null && !Number.isNaN(max))) {
       if (i.dealerPrice === null) return false;
       if (min !== null && !Number.isNaN(min) && i.dealerPrice < min) return false;

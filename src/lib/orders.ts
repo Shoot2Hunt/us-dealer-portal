@@ -17,6 +17,7 @@ import { loadCatalogContext, shippingBlock, toCatalogItem } from "@/lib/catalog"
 import { getPaymentSettings } from "@/sanity/content";
 import { refreshProduct } from "@/lib/woo/sync";
 import { createWooOrder, setWooOrderStatus } from "@/lib/woo/orders";
+import { evaluateDiscount } from "@/lib/discounts";
 import { isStoreKey, storeName, type StoreKey } from "@/lib/woo/stores";
 import { appUrl, sendEmail } from "@/lib/email";
 
@@ -39,6 +40,8 @@ export const checkoutSchema = z.object({
   shipping: addressSchema,
   poNumber: z.string().trim().max(50).optional(),
   notes: z.string().trim().max(1000).optional(),
+  /** One discount code per order (Studio → Discount codes). */
+  discountCode: z.string().trim().max(30).optional(),
   payments: z
     .array(
       z.object({
@@ -73,7 +76,7 @@ export async function placeOrder(user: User, input: CheckoutInput): Promise<Chec
   const ctx = await loadCatalogContext(user);
 
   // 2. Price and validate every line.
-  type Line = { store: StoreKey; productId: number; variationId: number; sku: string | null; name: string; quantity: number; unitCents: number };
+  type Line = { store: StoreKey; productId: number; variationId: number; sku: string | null; name: string; categories: string[]; quantity: number; unitCents: number; discountCents: number };
   const lines: Line[] = [];
   for (const l of input.lines) {
     const row = rows.find((r) => r.id === l.id);
@@ -91,9 +94,20 @@ export async function placeOrder(user: User, input: CheckoutInput): Promise<Chec
     }
     const blocked = shippingBlock(item, input.shipping.state, ctx);
     if (blocked) return { ok: false, error: blocked };
-    lines.push({ store: row.store, productId: row.productId, variationId: row.variationId, sku: row.sku, name: row.name, quantity: l.quantity, unitCents: cents(item.dealerPrice) });
+    lines.push({ store: row.store, productId: row.productId, variationId: row.variationId, sku: row.sku, name: row.name, categories: row.categories, quantity: l.quantity, unitCents: cents(item.dealerPrice), discountCents: 0 });
   }
-  const totalCents = lines.reduce((s, l) => s + l.unitCents * l.quantity, 0);
+  const subtotalCents = lines.reduce((s, l) => s + l.unitCents * l.quantity, 0);
+
+  // Discount code: checked again here (the checkout preview is only a preview) and spread
+  // across the qualifying lines, so each brand's WooCommerce order matches what was charged.
+  let discount: { code: string; cents: number } | null = null;
+  if (input.discountCode) {
+    const r = await evaluateDiscount(input.discountCode, user, lines.map((l, key) => ({ ...l, key })));
+    if (!r.ok) return { ok: false, error: `Discount code: ${r.error}` };
+    lines.forEach((l, key) => (l.discountCents = r.perLine.get(key) ?? 0));
+    discount = { code: r.code, cents: r.discountCents };
+  }
+  const totalCents = subtotalCents - (discount?.cents ?? 0);
 
   // 3. Validate the payment plan against the admin's payment settings.
   const settings = await getPaymentSettings();
@@ -114,10 +128,13 @@ export async function placeOrder(user: User, input: CheckoutInput): Promise<Chec
   const address: Address = input.shipping;
   const [order] = await db()
     .insert(orders)
-    .values({ userId: user.id, status: "awaiting_payment", total: dollars(totalCents), shippingAddress: address, poNumber: input.poNumber, notes: input.notes })
+    .values({
+      userId: user.id, status: "awaiting_payment", total: dollars(totalCents), shippingAddress: address, poNumber: input.poNumber, notes: input.notes,
+      discountCode: discount?.code ?? null, discountTotal: dollars(discount?.cents ?? 0),
+    })
     .returning();
   await db().insert(orderLines).values(
-    lines.map((l) => ({ orderId: order.id, store: l.store, productId: l.productId, variationId: l.variationId, sku: l.sku, name: l.name, quantity: l.quantity, unitPrice: dollars(l.unitCents) })),
+    lines.map((l) => ({ orderId: order.id, store: l.store, productId: l.productId, variationId: l.variationId, sku: l.sku, name: l.name, quantity: l.quantity, unitPrice: dollars(l.unitCents), discount: dollars(l.discountCents) })),
   );
 
   // 5. Take payment. Cards are authorized first, then eChecks debited, then cards captured,
@@ -168,12 +185,14 @@ export async function placeOrder(user: User, input: CheckoutInput): Promise<Chec
   const summary = done.map((d) => `${d.method === "ach" ? "ACH" : d.method === "card" ? "Card" : "Check"} $${d.amount.toFixed(2)}${d.last4 ? ` (…${d.last4})` : ""}`).join(" + ");
   const byStore = Map.groupBy(lines, (l) => l.store);
   for (const [store, storeLines] of byStore) {
-    const subtotal = dollars(storeLines.reduce((s, l) => s + l.unitCents * l.quantity, 0));
+    // What this brand is owed: its lines after their share of any discount code.
+    const subtotal = dollars(storeLines.reduce((s, l) => s + l.unitCents * l.quantity - l.discountCents, 0));
     try {
       const wooOrder = await createWooOrder({
         storeKey: store, user, address, portalOrderId: order.id, portalOrderNumber: order.number, poNumber: input.poNumber, paid: fullyPaid,
         paymentSummary: fullyPaid ? summary : `${summary} — waiting for payment to clear`,
-        lines: storeLines.map((l) => ({ productId: l.productId, variationId: l.variationId, quantity: l.quantity, unitPrice: dollars(l.unitCents) })),
+        discountCode: discount?.code,
+        lines: storeLines.map((l) => ({ productId: l.productId, variationId: l.variationId, quantity: l.quantity, unitPrice: dollars(l.unitCents), discount: dollars(l.discountCents) })),
       });
       await db().insert(storeOrders).values({ orderId: order.id, store, subtotal, wooOrderId: wooOrder.id, wooStatus: wooOrder.status });
     } catch (err) {

@@ -38,7 +38,43 @@ export function CheckoutForm({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const total = Math.round(cart.total * 100) / 100;
+  // Discount code. A code applied to a different cart (items or quantities changed) is set
+  // aside until the dealer applies it again, so the total shown is never out of date.
+  const cartKey = cart.lines.map((l) => `${l.id}x${l.quantity}`).join(",");
+  const [codeInput, setCodeInput] = useState("");
+  const [applied, setApplied] = useState<{ code: string; description: string | null; discount: number; cartKey: string } | null>(null);
+  const [codeError, setCodeError] = useState<string | null>(null);
+  const [applying, setApplying] = useState(false);
+  const discount = applied && applied.cartKey === cartKey ? applied : null;
+  const staleCode = applied && applied.cartKey !== cartKey ? applied.code : null;
+
+  async function applyCode(code: string) {
+    if (!code.trim()) return;
+    setApplying(true);
+    setCodeError(null);
+    try {
+      const res = await fetch("/api/discount-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: code.trim(), lines: cart.lines.map((l) => ({ id: l.id, quantity: l.quantity })) }),
+      });
+      const r = await res.json();
+      if (!r.ok) {
+        setApplied(null);
+        setCodeError(r.error ?? "That code isn't valid.");
+      } else {
+        setApplied({ code: r.code, description: r.description, discount: r.discount, cartKey });
+        setCodeInput("");
+      }
+    } catch {
+      setCodeError("Couldn't check that code. Try again.");
+    } finally {
+      setApplying(false);
+    }
+  }
+
+  const subtotal = Math.round(cart.total * 100) / 100;
+  const total = Math.round((subtotal - (discount?.discount ?? 0)) * 100) / 100;
   const allocated = useMemo(() => parts.reduce((s, p) => s + (Number(p.amount) || 0), 0), [parts]);
   const remaining = Math.round((total - allocated) * 100) / 100;
 
@@ -81,6 +117,7 @@ export function CheckoutForm({
           lines: cart.lines.map((l) => ({ id: l.id, quantity: l.quantity })),
           shipping: address,
           poNumber: poNumber || undefined,
+          discountCode: discount?.code,
           payments,
         }),
       });
@@ -231,9 +268,62 @@ export function CheckoutForm({
             </li>
           ))}
         </ul>
+        <div className="space-y-2 border-t border-line pt-3">
+          {discount ? (
+            <div className="flex animate-fade-up items-start justify-between gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm">
+              <span className="min-w-0">
+                <span className="flex items-center gap-1.5 font-semibold text-green-800">
+                  <span className="icon-[lucide--ticket-percent] h-4 w-4" aria-hidden="true" /> {discount.code}
+                </span>
+                {discount.description && <span className="block text-xs text-green-800/80">{discount.description}</span>}
+              </span>
+              <button type="button" onClick={() => setApplied(null)} className="text-xs text-green-800/80 underline hover:text-green-900">Remove</button>
+            </div>
+          ) : (
+            <div>
+              <label className="label" htmlFor="discount-code">Discount code</label>
+              <div className="flex gap-2">
+                <input
+                  id="discount-code"
+                  className="input uppercase placeholder:normal-case"
+                  placeholder="Enter code"
+                  value={codeInput}
+                  maxLength={30}
+                  onChange={(e) => setCodeInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void applyCode(codeInput);
+                    }
+                  }}
+                />
+                <button type="button" className="btn-ghost shrink-0" disabled={applying || !codeInput.trim()} onClick={() => applyCode(codeInput)}>
+                  {applying ? <span className="icon-[lucide--loader-circle] h-4 w-4 animate-spin" aria-hidden="true" /> : "Apply"}
+                </button>
+              </div>
+              {codeError && <p role="alert" className="mt-1 text-xs text-red-700">{codeError}</p>}
+              {staleCode && (
+                <p className="mt-1 text-xs text-amber-800">
+                  Your cart changed.{" "}
+                  <button type="button" className="underline" onClick={() => applyCode(staleCode)}>Re-apply {staleCode}</button>
+                </p>
+              )}
+            </div>
+          )}
+          <div className="flex justify-between text-sm text-muted">
+            <span>Subtotal</span>
+            <span>{usd(subtotal)}</span>
+          </div>
+          {discount && (
+            <div className="flex justify-between text-sm font-medium text-green-700">
+              <span>Discount</span>
+              <span>−{usd(discount.discount)}</span>
+            </div>
+          )}
+        </div>
         <div className="flex justify-between border-t border-line pt-3 text-lg font-semibold">
           <span>Total</span>
-          <span>{usd(total)}</span>
+          <span key={total} className="animate-fade-in">{usd(total)}</span>
         </div>
         <p className="text-xs text-muted">Shipping and any applicable tax are invoiced by each brand.</p>
         {error && <p className="rounded bg-red-50 p-2 text-sm text-red-800">{error}</p>}

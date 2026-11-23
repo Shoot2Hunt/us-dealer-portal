@@ -1,5 +1,7 @@
 import { defineArrayMember, defineField, defineType } from "sanity";
 import { contactSubmission, footerSettings, headerSettings, pluginSettings, securitySettings, themeSettings } from "./site";
+import { discountCode, promotion } from "./promotions";
+import { DealerPriceInput, SkuInput } from "../components/product-pricing";
 
 /** US state codes used for shipping restrictions. */
 const STATE_OPTIONS = "AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY"
@@ -147,19 +149,50 @@ export const productOverride = defineType({
   description: "Dealer-only settings for one WooCommerce product, matched by SKU.",
   fields: [
     defineField({ name: "brand", type: "reference", to: [{ type: "brand" }], validation: (r) => r.required() }),
-    defineField({ name: "sku", title: "SKU", type: "string", validation: (r) => r.required() }),
+    defineField({
+      name: "sku",
+      title: "SKU",
+      description: "Search below to fill this in from the synced catalog.",
+      type: "string",
+      validation: (r) => r.required(),
+      components: { input: SkuInput },
+    }),
     defineField({ name: "label", title: "Label (for your reference)", type: "string" }),
     defineField({ name: "hidden", title: "Hide from dealers", type: "boolean", initialValue: false }),
-    defineField({ name: "dealerPrice", title: "Dealer price ($)", type: "number", validation: (r) => r.min(0) }),
+    defineField({
+      name: "dealerPrice",
+      title: "Dealer price ($)",
+      description: "Replaces the regular dealer price. Lower than regular = shown to dealers as a sale, with the old price crossed out.",
+      type: "number",
+      validation: (r) => r.min(0).precision(2),
+      components: { input: DealerPriceInput },
+    }),
+    defineField({
+      name: "saleStarts",
+      title: "Price starts",
+      description: "Optional. Leave both dates blank for a permanent price.",
+      type: "datetime",
+    }),
+    defineField({
+      name: "saleEnds",
+      title: "Price ends",
+      description: "Optional. After this, dealers pay the regular price again.",
+      type: "datetime",
+      validation: (r) =>
+        r.custom((end, ctx) => {
+          const start = (ctx.parent as { saleStarts?: string } | undefined)?.saleStarts;
+          return !end || !start || new Date(end) > new Date(start) ? true : "Must be after the start";
+        }),
+    }),
     defineField({ name: "minQuantity", title: "Minimum order quantity", type: "number", validation: (r) => r.min(1) }),
     defineField({ name: "featured", type: "boolean", initialValue: false }),
     defineField({ name: "dealerNote", title: "Note shown to dealers", type: "string" }),
   ],
   preview: {
-    select: { sku: "sku", label: "label", brand: "brand.name", hidden: "hidden" },
-    prepare: ({ sku, label, brand, hidden }) => ({
+    select: { sku: "sku", label: "label", brand: "brand.name", hidden: "hidden", price: "dealerPrice", ends: "saleEnds" },
+    prepare: ({ sku, label, brand, hidden, price, ends }) => ({
       title: `${label || sku}${hidden ? " (hidden)" : ""}`,
-      subtitle: `${brand ?? ""} · ${sku}`,
+      subtitle: [brand, sku, typeof price === "number" ? "$" + price.toFixed(2) : null, ends ? `until ${new Date(ends).toLocaleDateString()}` : null].filter(Boolean).join(" · "),
     }),
   },
 });
@@ -203,6 +236,8 @@ export const schemaTypes = [
   pluginSettings,
   brand,
   productOverride,
+  promotion,
+  discountCode,
   announcement,
   page,
   contactSubmission,

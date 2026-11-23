@@ -131,7 +131,10 @@ export function ProductView({ product, initialVariantId }: Props) {
                     <td className="px-3 py-2 font-mono text-xs text-muted">{v.sku ?? "—"}</td>
                     <td className="px-3 py-2"><StockBadge variant={v} /></td>
                     <td className="px-3 py-2 text-right text-muted">{v.retailPrice !== null ? usd(v.retailPrice) : "—"}</td>
-                    <td className="px-3 py-2 text-right font-medium">{v.dealerPrice !== null ? usd(v.dealerPrice) : "—"}</td>
+                    <td className="px-3 py-2 text-right font-medium">
+                      {v.dealerPrice !== null ? <span className={v.compareAtPrice !== null ? "text-red-700" : undefined}>{usd(v.dealerPrice)}</span> : "—"}
+                      {v.compareAtPrice !== null && <span className="ml-1.5 text-xs font-normal text-muted line-through">{usd(v.compareAtPrice)}</span>}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -198,21 +201,36 @@ function Gallery({ images, shown, onPick, name, morphName }: { images: string[];
 }
 
 function Price({ variant }: { variant: ProductVariant }) {
-  const { dealerPrice, retailPrice, tierApplied } = variant;
-  const saving = dealerPrice !== null && retailPrice ? Math.round((1 - dealerPrice / retailPrice) * 100) : 0;
+  const { dealerPrice, retailPrice, compareAtPrice, priceReason } = variant;
+  const onSale = dealerPrice !== null && compareAtPrice !== null && priceReason?.kind !== "tier";
+  const saving = dealerPrice !== null && compareAtPrice ? Math.round((1 - dealerPrice / compareAtPrice) * 100) : 0;
+  const offRetail = dealerPrice !== null && retailPrice ? Math.round((1 - dealerPrice / retailPrice) * 100) : 0;
   return (
-    <div className="rounded-xl border border-line bg-linear-to-br from-white to-accent-soft/50 p-4">
+    <div className={`relative overflow-hidden rounded-xl border p-4 ${onSale ? "border-red-200 bg-linear-to-br from-white to-red-50" : "border-line bg-linear-to-br from-white to-accent-soft/50"}`}>
+      {onSale && (
+        <span key={`sale-${variant.id}`} className="absolute right-3 top-3 inline-flex animate-pop-in items-center gap-1 rounded-full bg-red-600 px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-white shadow-sm shadow-red-600/30">
+          <span className="icon-[lucide--badge-percent] h-3.5 w-3.5" aria-hidden="true" /> {priceReason?.kind === "promotion" ? "Promo" : "Sale"}
+        </span>
+      )}
       <p className="text-xs font-semibold uppercase tracking-wide text-muted">Your dealer price</p>
       <div key={variant.id} className="mt-1 flex animate-fade-up flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="font-display text-3xl font-bold text-ink">{dealerPrice !== null ? usd(dealerPrice) : "Call for pricing"}</span>
-        {retailPrice !== null && dealerPrice !== null && retailPrice > dealerPrice && (
-          <span className="text-sm text-muted line-through">{usd(retailPrice)} retail</span>
+        <span className={`font-display text-3xl font-bold ${onSale ? "text-red-700" : "text-ink"}`}>{dealerPrice !== null ? usd(dealerPrice) : "Call for pricing"}</span>
+        {compareAtPrice !== null ? (
+          <span className="text-base text-muted line-through decoration-red-500/70">{usd(compareAtPrice)}</span>
+        ) : (
+          retailPrice !== null && dealerPrice !== null && retailPrice > dealerPrice && <span className="text-sm text-muted line-through">{usd(retailPrice)} retail</span>
         )}
-        {saving > 0 && <span className="badge bg-green-100 text-green-800">Save {saving}%</span>}
+        {compareAtPrice !== null && saving > 0 ? (
+          <span className="badge bg-green-100 text-green-800">You save {usd(compareAtPrice - dealerPrice!)} ({saving}%)</span>
+        ) : (
+          offRetail > 0 && <span className="badge bg-green-100 text-green-800">Save {offRetail}%</span>
+        )}
       </div>
-      {tierApplied && (
+      {priceReason && (
         <p className="mt-1.5 flex items-center gap-1 text-xs font-medium text-accent">
-          <span className="icon-[lucide--award] h-3.5 w-3.5" aria-hidden="true" /> {tierApplied} pricing applied
+          <span className={`${priceReason.kind === "tier" ? "icon-[lucide--award]" : "icon-[lucide--tag]"} h-3.5 w-3.5`} aria-hidden="true" />
+          {priceReason.kind === "tier" ? `${priceReason.label} applied` : priceReason.kind === "promotion" ? `Promotion: ${priceReason.label}` : "Sale price"}
+          {compareAtPrice !== null && retailPrice !== null && <span className="font-normal text-muted"> · Retail {usd(retailPrice)}</span>}
         </p>
       )}
     </div>

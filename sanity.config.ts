@@ -14,6 +14,8 @@ import { InboxIcon } from "@sanity/icons/Inbox";
 import { LockIcon } from "@sanity/icons/Lock";
 import { MenuIcon } from "@sanity/icons/Menu";
 import { PlugIcon } from "@sanity/icons/Plug";
+import { SparklesIcon } from "@sanity/icons/Sparkles";
+import { TagIcon } from "@sanity/icons/Tag";
 import { apiVersion, dataset, projectId } from "./src/sanity/env";
 import { PORTAL_CREATED, schemaTypes, SINGLETONS } from "./src/sanity/schemaTypes";
 import { statisticsTool } from "./src/sanity/tools/statistics";
@@ -97,6 +99,18 @@ export default defineConfig({
             S.divider(),
             S.documentTypeListItem("brand").title("Brands"),
             S.documentTypeListItem("productOverride").title("Product settings").icon(ControlsIcon),
+            S.listItem()
+              .title("Promotions & codes")
+              .id("promotions")
+              .icon(SparklesIcon)
+              .child(
+                S.list()
+                  .title("Promotions & codes")
+                  .items([
+                    S.documentTypeListItem("promotion").title("Promotions").icon(SparklesIcon),
+                    S.documentTypeListItem("discountCode").title("Discount codes").icon(TagIcon),
+                  ]),
+              ),
             S.documentTypeListItem("announcement").title("Announcements"),
             S.documentTypeListItem("page").title("Pages"),
           ]),

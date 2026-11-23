@@ -46,7 +46,10 @@ export function OrderDetail({ detail, admin = false }: { detail: Detail; admin?:
                   {items.map((l) => (
                     <li key={l.id} className="flex justify-between py-2">
                       <span>{l.quantity} × {l.name} <span className="text-xs text-muted">{l.sku}</span></span>
-                      <span>{usd(Number(l.unitPrice) * l.quantity)}</span>
+                      <span className="text-right">
+                        {usd(Number(l.unitPrice) * l.quantity)}
+                        {Number(l.discount) > 0 && <span className="block text-xs text-green-700">−{usd(Number(l.discount))} code</span>}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -63,6 +66,14 @@ export function OrderDetail({ detail, admin = false }: { detail: Detail; admin?:
                 <span>{usd(Number(p.amount))}</span>
               </div>
             ))}
+            {Number(order.discountTotal) > 0 && (
+              <div className="flex justify-between gap-2 border-t border-line pt-2 text-green-700">
+                <span className="flex items-center gap-1">
+                  <span className="icon-[lucide--ticket-percent] h-4 w-4" aria-hidden="true" /> Discount {order.discountCode && <strong>{order.discountCode}</strong>}
+                </span>
+                <span>−{usd(Number(order.discountTotal))}</span>
+              </div>
+            )}
             <div className="flex justify-between border-t border-line pt-2 font-semibold">
               <span>Total</span>
               <span>{usd(Number(order.total))}</span>

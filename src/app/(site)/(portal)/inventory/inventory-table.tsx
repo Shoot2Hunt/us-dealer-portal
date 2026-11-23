@@ -44,6 +44,7 @@ export function InventoryTable({ initial }: { initial: Data }) {
   const brandCounts = useMemo(() => countBy(applyFilters(items, f, "brands"), (i) => [i.store]), [items, f]);
   const catCounts = useMemo(() => countBy(applyFilters(items, f, "cats"), (i) => i.categories), [items, f]);
   const results = useMemo(() => sortItems(applyFilters(items, f), f.sort), [items, f]);
+  const saleCount = useMemo(() => items.filter((i) => i.compareAtPrice !== null).length, [items]);
 
   const pages = Math.max(1, Math.ceil(results.length / f.size));
   const page = Math.min(f.page, pages);
@@ -66,6 +67,7 @@ export function InventoryTable({ initial }: { initial: Data }) {
       : []),
     ...(filters.orderable ? [{ label: "Orderable by me", clear: () => update({ orderable: false }) }] : []),
     ...(filters.featured ? [{ label: "Featured", clear: () => update({ featured: false }) }] : []),
+    ...(filters.sale ? [{ label: "On sale", clear: () => update({ sale: false }) }] : []),
   ];
   const clearAll = () => setFilters((x) => ({ ...DEFAULT_FILTERS, sort: x.sort, size: x.size }));
 
@@ -122,6 +124,7 @@ export function InventoryTable({ initial }: { initial: Data }) {
           <FilterSection title="More">
             <CheckRow label="Orderable by me" hint="In stock, priced, and no SOT restriction for your account" checked={filters.orderable} onChange={() => update({ orderable: !filters.orderable })} />
             <CheckRow label="Featured only" checked={filters.featured} onChange={() => update({ featured: !filters.featured })} />
+            <CheckRow label="On sale" hint="Sale, promotion or tier prices" count={saleCount} checked={filters.sale} onChange={() => update({ sale: !filters.sale })} />
           </FilterSection>
 
           {chips.length > 0 && <button className="btn-ghost w-full" onClick={clearAll}>Clear all filters</button>}
@@ -323,8 +326,24 @@ function Row({ item }: { item: CatalogItem }) {
       </td>
       <td className="px-3 py-2 text-right text-muted">{item.retailPrice !== null ? usd(item.retailPrice) : "—"}</td>
       <td className="px-3 py-2 text-right font-medium">
-        {item.dealerPrice !== null ? usd(item.dealerPrice) : "—"}
-        {item.tierApplied && <span className="block text-[11px] font-normal text-accent">{item.tierApplied} price</span>}
+        {item.compareAtPrice !== null && item.dealerPrice !== null ? (
+          <>
+            <span className="text-red-700">{usd(item.dealerPrice)}</span>
+            <span className="block text-[11px] font-normal text-muted line-through">{usd(item.compareAtPrice)}</span>
+            {item.priceReason && (
+              <span
+                className={`mt-0.5 inline-block max-w-32 truncate rounded px-1.5 text-[10px] font-semibold uppercase tracking-wide ${item.priceReason.kind === "tier" ? "bg-accent/10 text-accent" : "bg-red-600 text-white"}`}
+                title={item.priceReason.label}
+              >
+                {item.priceReason.kind === "tier" ? item.priceReason.label : `${item.priceReason.label} −${Math.round((1 - item.dealerPrice / item.compareAtPrice) * 100)}%`}
+              </span>
+            )}
+          </>
+        ) : item.dealerPrice !== null ? (
+          usd(item.dealerPrice)
+        ) : (
+          "—"
+        )}
       </td>
       <td className="px-3 py-2">
         {orderable && (

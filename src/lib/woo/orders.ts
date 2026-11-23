@@ -59,7 +59,10 @@ export type NewStoreOrder = {
   poNumber?: string | null;
   paid: boolean;
   paymentSummary: string;
-  lines: { productId: number; variationId: number; quantity: number; unitPrice: string }[];
+  /** Portal discount code used on the order, if any (noted on the Woo order). */
+  discountCode?: string;
+  /** `discount` is this line's share of the discount code, in dollars. */
+  lines: { productId: number; variationId: number; quantity: number; unitPrice: string; discount?: string }[];
 };
 
 /**
@@ -81,23 +84,30 @@ export async function createWooOrder(o: NewStoreOrder): Promise<WooOrder> {
       shipping: wooAddress(o.address),
       customer_note: o.poNumber ? `PO: ${o.poNumber}` : "",
       line_items: o.lines.map((l) => {
-        const total = (Number(l.unitPrice) * l.quantity).toFixed(2);
+        // subtotal = before the discount code, total = after. WooCommerce shows the gap as a discount.
+        const subtotalCents = Math.round(Number(l.unitPrice) * 100) * l.quantity;
+        const totalCents = subtotalCents - Math.round(Number(l.discount ?? 0) * 100);
         return {
           product_id: l.productId,
           ...(l.variationId ? { variation_id: l.variationId } : {}),
           quantity: l.quantity,
-          subtotal: total,
-          total,
+          subtotal: (subtotalCents / 100).toFixed(2),
+          total: (totalCents / 100).toFixed(2),
         };
       }),
       meta_data: [
         { key: "_dealer_portal_order_id", value: o.portalOrderId },
         { key: "_dealer_portal_order_number", value: String(o.portalOrderNumber) },
         { key: "_dealer_portal_payment", value: o.paymentSummary },
+        ...(o.discountCode ? [{ key: "_dealer_portal_discount_code", value: o.discountCode }] : []),
       ],
     },
   });
-  await addOrderNote(o.storeKey, data.id, `Dealer portal order #${o.portalOrderNumber}. Payment: ${o.paymentSummary}`);
+  await addOrderNote(
+    o.storeKey,
+    data.id,
+    `Dealer portal order #${o.portalOrderNumber}. Payment: ${o.paymentSummary}${o.discountCode ? `. Discount code: ${o.discountCode}` : ""}`,
+  );
   return data;
 }
 

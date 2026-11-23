@@ -21,11 +21,13 @@ const NAV_ICON_CLASS: Record<string, string> = {
   star: "icon-[lucide--star]",
   info: "icon-[lucide--info]",
   mail: "icon-[lucide--mail]",
+  percent: "icon-[lucide--badge-percent]",
 };
 
 const DEFAULT_LINKS: NavItem[] = [
   { label: "Inventory", href: "/inventory", icon: "boxes" },
   { label: "Orders", href: "/orders", icon: "receipt" },
+  { label: "Promotions", href: "/promotions", icon: "percent" },
 ];
 
 function HeaderLink({ link }: { link: NavItem }) {
