@@ -4,6 +4,7 @@ import { defineConfig } from "sanity";
 import { structureTool, type StructureBuilder } from "sanity/structure";
 import { visionTool } from "@sanity/vision";
 // @sanity/icons v5: each icon is imported from its own path.
+import { AddIcon } from "@sanity/icons/Add";
 import { BlockElementIcon } from "@sanity/icons/BlockElement";
 import { CheckmarkCircleIcon } from "@sanity/icons/CheckmarkCircle";
 import { ClockIcon } from "@sanity/icons/Clock";
@@ -19,23 +20,53 @@ import { TagIcon } from "@sanity/icons/Tag";
 import { apiVersion, dataset, projectId } from "./src/sanity/env";
 import { PORTAL_CREATED, schemaTypes, SINGLETONS } from "./src/sanity/schemaTypes";
 import { statisticsTool } from "./src/sanity/tools/statistics";
+import { QUICK_ACTION_RULES, quickHeaderActions } from "./src/sanity/components/document-actions";
+import { DocumentListPane, type DocumentListOptions } from "./src/sanity/components/document-list-pane";
+
+for (const t of SINGLETONS) QUICK_ACTION_RULES.noActions.add(t);
+for (const t of PORTAL_CREATED) QUICK_ACTION_RULES.noDuplicate.add(t);
 
 const singleton = (S: StructureBuilder, type: string, title: string, icon?: React.ComponentType) =>
   S.listItem().title(title).id(type).icon(icon).child(S.document().schemaType(type).documentId(type).title(title));
 
-const inbox = (S: StructureBuilder, title: string, status: string | null, icon: React.ComponentType) =>
-  S.listItem()
+/**
+ * A document list with Duplicate/Delete buttons that appear on the right when you hover
+ * a document (src/sanity/components/document-list-pane.tsx). Opens documents in the next
+ * pane, with a "Create" button in the list header unless `canCreate` is false.
+ */
+function docList(S: StructureBuilder, id: string, title: string, options: DocumentListOptions, icon?: React.ComponentType, canCreate = true) {
+  return S.listItem()
+    .id(id)
     .title(title)
-    .id(status ?? "all")
-    .icon(icon)
+    .icon(icon ?? S.documentTypeListItem(options.type).getIcon())
     .child(
-      S.documentList()
+      S.component(DocumentListPane)
+        .id(id)
         .title(title)
-        .schemaType("contactSubmission")
-        .filter(status ? `_type == "contactSubmission" && coalesce(status, "new") == $status` : `_type == "contactSubmission"`)
-        .params(status ? { status } : {})
-        .defaultOrdering([{ field: "submittedAt", direction: "desc" }]),
+        .options(options)
+        .menuItems(
+          canCreate
+            ? [S.menuItem().title(`New ${title.replace(/s$/, "").toLowerCase()}`).icon(AddIcon).intent({ type: "create", params: { type: options.type } }).showAsAction(true)]
+            : [],
+        )
+        .child((docId: string) => S.document().documentId(docId).schemaType(options.type)),
     );
+}
+
+const inbox = (S: StructureBuilder, title: string, status: string | null, icon: React.ComponentType) =>
+  docList(
+    S,
+    status ?? "all",
+    title,
+    {
+      type: "contactSubmission",
+      filter: status ? `coalesce(status, "new") == $status` : undefined,
+      params: status ? { status } : undefined,
+      emptyText: status === "new" ? "No new messages." : "No messages here.",
+    },
+    icon,
+    false,
+  );
 
 export default defineConfig({
   basePath: "/studio",
@@ -48,13 +79,15 @@ export default defineConfig({
     templates: (templates) => templates.filter(({ schemaType }) => !SINGLETONS.includes(schemaType) && !PORTAL_CREATED.includes(schemaType)),
   },
   document: {
+    // Delete and Duplicate live in the document header, next to the close button
+    // (see quickHeaderActions), so they're removed from the "⋯" menu at the bottom.
     actions: (actions, { schemaType }) => {
       if (SINGLETONS.includes(schemaType)) {
         return actions.filter(({ action }) => action && ["publish", "discardChanges", "restore"].includes(action));
       }
-      if (PORTAL_CREATED.includes(schemaType)) return actions.filter(({ action }) => action !== "duplicate");
-      return actions;
+      return actions.filter(({ action }) => action !== "delete" && action !== "duplicate");
     },
+    unstable_fieldActions: (prev) => [...prev, ...quickHeaderActions],
   },
   tools: (prev) => [...prev, statisticsTool],
   plugins: [
@@ -72,16 +105,16 @@ export default defineConfig({
             inbox(S, "All messages", null, InboxIcon),
 
             S.divider().title("Catalog"),
-            S.documentTypeListItem("brand").title("Brands"),
-            S.documentTypeListItem("productOverride").title("Product settings").icon(ControlsIcon),
+            docList(S, "brand", "Brands", { type: "brand" }),
+            docList(S, "productOverride", "Product settings", { type: "productOverride" }, ControlsIcon),
 
             S.divider().title("Promotions & codes"),
-            S.documentTypeListItem("promotion").title("Promotions").icon(SparklesIcon),
-            S.documentTypeListItem("discountCode").title("Discount codes").icon(TagIcon),
+            docList(S, "promotion", "Promotions", { type: "promotion" }, SparklesIcon),
+            docList(S, "discountCode", "Discount codes", { type: "discountCode" }, TagIcon),
 
             S.divider().title("Content"),
-            S.documentTypeListItem("announcement").title("Announcements"),
-            S.documentTypeListItem("page").title("Pages"),
+            docList(S, "announcement", "Announcements", { type: "announcement" }),
+            docList(S, "page", "Pages", { type: "page" }),
 
             S.divider().title("Appearance"),
             singleton(S, "themeSettings", "Theme", ColorWheelIcon),
