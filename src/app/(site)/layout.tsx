@@ -30,11 +30,17 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const css = themeCss(theme);
   return (
     <html lang="en" className={`${fontVars} h-full antialiased`}>
-      <head>
-        {/* Theme colors, fonts and corners from Sanity. themeCss only emits validated values. */}
-        {css && <style id="portal-theme" dangerouslySetInnerHTML={{ __html: css }} />}
-      </head>
       <body className="min-h-full flex flex-col">
+        {/*
+          Theme colors, fonts and corners from Sanity (themeCss only emits validated values).
+          `href` + `precedence` let React hoist this into <head> itself. Don't add a manual
+          <head> here: it causes a hydration mismatch that drops the site's stylesheet.
+        */}
+        {css && (
+          <style href="portal-theme" precedence="high">
+            {css}
+          </style>
+        )}
         {children}
         <PageViewTracker />
         <SitePlugins analytics={plugins.analytics} consent={plugins.cookieConsent} />
