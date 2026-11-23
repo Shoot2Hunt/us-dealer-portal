@@ -1,5 +1,5 @@
 import QRCode from "qrcode";
-import { requireUser, twoFactorEnabled } from "@/lib/auth/session";
+import { requireSignedIn, twoFactorEnabled, twoFactorSetupRequired } from "@/lib/auth/session";
 import { decryptSecret, otpauthUri } from "@/lib/auth/totp";
 import { getSiteSettings } from "@/sanity/content";
 import { getTierStatus } from "@/lib/tiers";
@@ -12,9 +12,9 @@ const fmtDate = (d: Date | string | null | undefined) =>
   d ? new Date(d).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" }) : null;
 
 export default async function AccountPage() {
-  const user = await requireUser();
+  const user = await requireSignedIn();
   const isDealer = user.role === "dealer";
-  const [s, tier] = await Promise.all([getSiteSettings(), isDealer ? getTierStatus(user.id) : null]);
+  const [s, tier, mustSetUp2fa] = await Promise.all([getSiteSettings(), isDealer ? getTierStatus(user.id) : null, twoFactorSetupRequired(user)]);
 
   // While setting up 2FA, show the QR code for the pending secret.
   let setup: { qr: string; secret: string } | null = null;
@@ -43,6 +43,18 @@ export default async function AccountPage() {
       </aside>
 
       <div className="max-w-3xl space-y-8">
+        {mustSetUp2fa && (
+          <div role="alert" className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <span className="icon-[lucide--shield-alert] mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
+            <div>
+              <p className="font-semibold">Two-step verification is required</p>
+              <p className="mt-0.5">
+                Your organization requires two-step verification for {isDealer ? "dealer" : "admin"} accounts. Set it up below to
+                continue using the portal.
+              </p>
+            </div>
+          </div>
+        )}
         <section id="profile" className="scroll-mt-24 space-y-4">
           <h2 className="text-lg font-semibold">Profile</h2>
           <div className="card grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">

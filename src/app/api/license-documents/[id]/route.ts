@@ -1,14 +1,14 @@
 import type { NextRequest } from "next/server";
 import { eq } from "drizzle-orm";
 import { db, licenseDocuments } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth/session";
+import { getApiUser } from "@/lib/auth/session";
 import { canViewLicenseDoc } from "@/lib/license-docs";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Streams an FFL/SOT file to admins and to the dealer who uploaded it. Everyone else gets 404. */
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  const user = await getCurrentUser();
+  const user = await getApiUser();
   if (!user) return new Response("Unauthorized", { status: 401 });
 
   const { id } = await ctx.params;

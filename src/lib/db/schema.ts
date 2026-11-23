@@ -9,6 +9,7 @@ import {
   serial,
   text,
   timestamp,
+  index,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
@@ -269,3 +270,34 @@ export type EmailLogRow = typeof emailLog.$inferSelect;
 export type LicenseDocKind =(typeof licenseDocKindEnum.enumValues)[number];
 export type Order = typeof orders.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
+
+/**
+ * One row per page view, recorded by /api/track. No cookies: `visitor` is a salted hash of
+ * IP + browser that changes every day, so a person can't be followed across days.
+ */
+export const pageViews = pgTable(
+  "page_views",
+  {
+    id: serial("id").primaryKey(),
+    path: text("path").notNull(),
+    /** Host of an outside site that sent the visitor, e.g. "google.com". */
+    referrerHost: text("referrer_host"),
+    visitor: text("visitor").notNull(),
+    userId: uuid("user_id"),
+    role: text("role"),
+    /** Two-letter country code from the hosting provider, when available. */
+    country: text("country"),
+    device: text("device").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("page_views_created_at").on(t.createdAt)],
+);
+
+/** Failed sign-ins per email address, for the lockout set in Sanity → Security. */
+export const loginThrottle = pgTable("login_throttle", {
+  /** Lower-cased email. Tracked whether or not an account exists, so lockouts reveal nothing. */
+  key: text("key").primaryKey(),
+  failures: integer("failures").notNull().default(0),
+  firstFailureAt: timestamp("first_failure_at", { withTimezone: true }).notNull().defaultNow(),
+  lockedUntil: timestamp("locked_until", { withTimezone: true }),
+});

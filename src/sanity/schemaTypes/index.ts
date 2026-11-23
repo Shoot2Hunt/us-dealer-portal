@@ -1,4 +1,5 @@
 import { defineArrayMember, defineField, defineType } from "sanity";
+import { contactSubmission, footerSettings, headerSettings, pluginSettings, securitySettings, themeSettings } from "./site";
 
 /** US state codes used for shipping restrictions. */
 const STATE_OPTIONS = "AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY"
@@ -67,6 +68,19 @@ export const brand = defineType({
     }),
     defineField({ name: "active", title: "Show in portal", type: "boolean", initialValue: true }),
     defineField({ name: "logo", type: "image" }),
+    defineField({
+      name: "footerLogo",
+      title: "Logo for dark backgrounds",
+      description: "A light/white version shown in the dark footer. Falls back to the built-in file, then to Logo.",
+      type: "image",
+    }),
+    defineField({
+      name: "color",
+      title: "Brand color",
+      description: "Hex color like #e4232a. Used for this brand's tag on product pages and in the inventory.",
+      type: "string",
+      validation: (r) => r.regex(/^#[0-9a-fA-F]{6}$/).error("Use a 6-digit hex color, e.g. #e4232a"),
+    }),
     defineField({
       name: "website",
       title: "Website",
@@ -173,9 +187,27 @@ export const page = defineType({
     defineField({ name: "title", type: "string", validation: (r) => r.required() }),
     defineField({ name: "slug", type: "slug", options: { source: "title" }, validation: (r) => r.required() }),
     defineField({ name: "showInNav", title: "Link in the portal menu", type: "boolean", initialValue: false }),
+    defineField({ name: "showInFooter", title: "Link in the footer", type: "boolean", initialValue: false }),
+    defineField({ name: "description", title: "Search/preview description", type: "string", validation: (r) => r.max(160) }),
     defineField({ name: "body", type: "array", of: [defineArrayMember({ type: "block" })] }),
   ],
 });
 
-export const schemaTypes = [siteSettings, paymentSettings, brand, productOverride, announcement, page];
-export const SINGLETONS = ["siteSettings", "paymentSettings"];
+export const schemaTypes = [
+  siteSettings,
+  paymentSettings,
+  themeSettings,
+  headerSettings,
+  footerSettings,
+  securitySettings,
+  pluginSettings,
+  brand,
+  productOverride,
+  announcement,
+  page,
+  contactSubmission,
+];
+/** One document each, opened directly from the Studio menu. */
+export const SINGLETONS = ["siteSettings", "paymentSettings", "themeSettings", "headerSettings", "footerSettings", "securitySettings", "pluginSettings"];
+/** Created by the portal, never from Studio's "Create" menu. */
+export const PORTAL_CREATED = ["contactSubmission"];

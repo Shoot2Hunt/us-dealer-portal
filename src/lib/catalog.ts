@@ -11,6 +11,8 @@ export type CatalogItem = {
   id: number;
   store: string;
   brandName: string;
+  /** Brand color from Sanity (#rrggbb), when set. */
+  brandColor?: string;
   productId: number;
   variationId: number;
   name: string;
@@ -93,6 +95,7 @@ export function toCatalogItem(row: CatalogRow, user: User, ctx: CatalogContext):
     id: row.id,
     store: row.store,
     brandName: brand?.name ?? storeName(row.store),
+    brandColor: brand?.color && /^#[0-9a-f]{6}$/i.test(brand.color) ? brand.color : undefined,
     productId: row.productId,
     variationId: row.variationId,
     name: row.name,
@@ -139,6 +142,8 @@ export type ProductDetail = {
   store: string;
   productId: number;
   brandName: string;
+  /** Brand color from Sanity (#rrggbb), when set. */
+  brandColor?: string;
   name: string;
   categories: string[];
   /** Raw WooCommerce HTML; sanitize before rendering. */
@@ -184,6 +189,7 @@ export async function getProduct(user: User, store: string, productId: number): 
     store,
     productId,
     brandName: variants[0]!.brandName,
+    brandColor: variants[0]!.brandColor,
     name: first.parentName ?? first.name,
     categories: first.categories,
     description: first.description,

@@ -6,11 +6,11 @@ import { eq, sql } from "drizzle-orm";
 import { createHash, randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { db, users, type User } from "@/lib/db";
+import { getSecuritySettings } from "@/sanity/content";
 import {
   readSession,
   readTwoFactorTicket,
   SESSION_COOKIE,
-  SESSION_DAYS,
   signSession,
   signTwoFactorTicket,
   TWO_FACTOR_COOKIE,
@@ -20,9 +20,11 @@ import {
 const cookieBase = { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/" } as const;
 
 export async function startSession(user: User) {
-  const token = await signSession({ sub: user.id, role: user.role, v: user.sessionVersion });
+  // Length comes from Sanity → Security (clamped to 1–30 days).
+  const { sessionDays } = await getSecuritySettings();
+  const token = await signSession({ sub: user.id, role: user.role, v: user.sessionVersion }, sessionDays);
   const jar = await cookies();
-  jar.set(SESSION_COOKIE, token, { ...cookieBase, maxAge: SESSION_DAYS * 24 * 60 * 60 });
+  jar.set(SESSION_COOKIE, token, { ...cookieBase, maxAge: sessionDays * 24 * 60 * 60 });
   jar.delete(TWO_FACTOR_COOKIE);
 }
 
@@ -77,9 +79,31 @@ export const getCurrentUser = cache(async (): Promise<User | null> => {
   return user;
 });
 
-export async function requireUser(): Promise<User> {
+/** Signed in and active, without the 2FA-required check. Only for the account page, where 2FA is set up. */
+export async function requireSignedIn(): Promise<User> {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+  return user;
+}
+
+/** True when Sanity → Security requires 2FA for this user's role and they haven't set it up. */
+export async function twoFactorSetupRequired(user: User): Promise<boolean> {
+  if (twoFactorEnabled(user)) return false;
+  const policy = await getSecuritySettings();
+  return isAdmin(user) ? policy.requireTwoFactorAdmins : policy.requireTwoFactorDealers;
+}
+
+/** Signed in and meeting the security policy; otherwise sent to sign in or to set up 2FA. */
+export async function requireUser(): Promise<User> {
+  const user = await requireSignedIn();
+  if (await twoFactorSetupRequired(user)) redirect("/account?setup=2fa#two-factor");
+  return user;
+}
+
+/** For API routes: the user only if they meet the security policy, else null (→ 401). */
+export async function getApiUser(): Promise<User | null> {
+  const user = await getCurrentUser();
+  if (!user || (await twoFactorSetupRequired(user))) return null;
   return user;
 }
 

@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { inArray } from "drizzle-orm";
 import { db, inventory } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth/session";
+import { getApiUser } from "@/lib/auth/session";
 import { loadCatalogContext, toCatalogItem } from "@/lib/catalog";
 
 /**
@@ -10,7 +10,7 @@ import { loadCatalogContext, toCatalogItem } from "@/lib/catalog";
  * and any Sanity price changes, so the checkout total matches what's charged.
  */
 export async function GET(req: NextRequest) {
-  const user = await getCurrentUser();
+  const user = await getApiUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const ids = (req.nextUrl.searchParams.get("ids") ?? "")
     .split(",")

@@ -8,13 +8,14 @@ import { db, users, type Address } from "@/lib/db";
 import {
   checkPassword,
   hashPassword,
-  MIN_PASSWORD_LENGTH,
-  requireUser,
+
+  requireSignedIn,
   signOutOtherSessions,
   startSession,
   twoFactorEnabled,
 } from "@/lib/auth/session";
 import { checkSecondFactor, CLEARED_TWO_FACTOR } from "@/lib/auth/two-factor";
+import { passwordProblem } from "@/lib/auth/password-policy";
 import { decryptSecret, encryptSecret, newRecoveryCodes, newTotpSecret, verifyTotp } from "@/lib/auth/totp";
 import { sendEmail } from "@/lib/email";
 import { passwordChanged, twoFactorDisabled, twoFactorEnabled as twoFactorEnabledEmail } from "@/lib/email-templates";
@@ -59,7 +60,7 @@ const addressSchema = z.object({
 const opt = (form: FormData, key: string) => String(form.get(key) ?? "").trim() || undefined;
 
 export async function updateProfile(_: AccountState, form: FormData): Promise<AccountState> {
-  const user = await requireUser();
+  const user = await requireSignedIn();
   const parsed = profileSchema.safeParse({ name: form.get("name"), phone: opt(form, "phone") });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message };
 
@@ -91,11 +92,12 @@ export async function updateProfile(_: AccountState, form: FormData): Promise<Ac
 // --- Password ---
 
 export async function changePassword(_: AccountState, form: FormData): Promise<AccountState> {
-  const user = await requireUser();
+  const user = await requireSignedIn();
   const current = String(form.get("current") ?? "");
   const password = String(form.get("password") ?? "");
   const confirm = String(form.get("confirm") ?? "");
-  if (password.length < MIN_PASSWORD_LENGTH) return { error: `Use at least ${MIN_PASSWORD_LENGTH} characters.` };
+  const problem = await passwordProblem(password, { email: user.email, name: user.name });
+  if (problem) return { error: problem };
   if (password !== confirm) return { error: "The new passwords don't match." };
   if (password === current) return { error: "Choose a password that's different from your current one." };
 
@@ -117,7 +119,7 @@ export async function changePassword(_: AccountState, form: FormData): Promise<A
 }
 
 export async function signOutEverywhere(): Promise<void> {
-  const user = await requireUser();
+  const user = await requireSignedIn();
   try {
     await startSession(await signOutOtherSessions(user.id));
   } catch (err) {
@@ -131,21 +133,21 @@ export async function signOutEverywhere(): Promise<void> {
 
 /** Step 1: make a secret and show the QR code. Nothing changes for sign-in until it's confirmed. */
 export async function beginTwoFactorSetup(): Promise<void> {
-  const user = await requireUser();
+  const user = await requireSignedIn();
   if (twoFactorEnabled(user)) return;
   await db().update(users).set({ totpPendingSecret: encryptSecret(newTotpSecret()) }).where(eq(users.id, user.id));
   refresh();
 }
 
 export async function cancelTwoFactorSetup(): Promise<void> {
-  const user = await requireUser();
+  const user = await requireSignedIn();
   await db().update(users).set({ totpPendingSecret: null }).where(eq(users.id, user.id));
   refresh();
 }
 
 /** Step 2: the user proves their app is set up by entering a code. Then it's on. */
 export async function confirmTwoFactorSetup(_: AccountState, form: FormData): Promise<AccountState> {
-  const user = await requireUser();
+  const user = await requireSignedIn();
   if (twoFactorEnabled(user)) return { error: "Two-step verification is already on." };
   if (!user.totpPendingSecret) return { error: "Setup expired. Start again." };
 
@@ -179,7 +181,7 @@ export async function confirmTwoFactorSetup(_: AccountState, form: FormData): Pr
 }
 
 export async function regenerateRecoveryCodes(_: AccountState, form: FormData): Promise<AccountState> {
-  const user = await requireUser();
+  const user = await requireSignedIn();
   if (!twoFactorEnabled(user)) return { error: "Turn on two-step verification first." };
   let codes: string[];
   try {
@@ -196,7 +198,7 @@ export async function regenerateRecoveryCodes(_: AccountState, form: FormData): 
 }
 
 export async function disableTwoFactor(_: AccountState, form: FormData): Promise<AccountState> {
-  const user = await requireUser();
+  const user = await requireSignedIn();
   if (!twoFactorEnabled(user)) return { error: "Two-step verification is already off." };
   try {
     if (!user.passwordHash || !(await checkPassword(String(form.get("password") ?? ""), user.passwordHash))) {

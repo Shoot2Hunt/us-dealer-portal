@@ -21,12 +21,13 @@ function key() {
   return new TextEncoder().encode(secret);
 }
 
-export async function signSession(payload: SessionPayload): Promise<string> {
+/** `days` comes from Sanity → Security; the proxy only checks the signature and expiry. */
+export async function signSession(payload: SessionPayload, days = SESSION_DAYS): Promise<string> {
   return new SignJWT({ role: payload.role, v: payload.v ?? 0 })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(payload.sub)
     .setIssuedAt()
-    .setExpirationTime(`${SESSION_DAYS}d`)
+    .setExpirationTime(`${days}d`)
     .sign(key());
 }
 

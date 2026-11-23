@@ -41,7 +41,11 @@ export function ProductView({ product, initialVariantId }: Props) {
 
       <div className="space-y-6">
         <div className="space-y-2">
-          <p className="inline-flex items-center gap-1.5 rounded-full bg-accent-soft px-3 py-1 text-xs font-semibold uppercase tracking-wide text-accent-dark">
+          <p
+            className="inline-flex items-center gap-1.5 rounded-full bg-accent-soft px-3 py-1 text-xs font-semibold uppercase tracking-wide text-accent-dark"
+            // Brand color from Sanity (validated #rrggbb) tints the tag when set.
+            style={product.brandColor ? { backgroundColor: `color-mix(in oklab, ${product.brandColor} 14%, white)`, color: `color-mix(in oklab, ${product.brandColor} 80%, black)` } : undefined}
+          >
             <span className="icon-[lucide--tag] h-3.5 w-3.5" aria-hidden="true" /> {product.brandName}
           </p>
           <h1 className="text-3xl font-bold leading-tight">{product.name}</h1>

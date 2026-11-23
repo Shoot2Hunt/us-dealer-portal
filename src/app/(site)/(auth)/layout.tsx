@@ -6,7 +6,7 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
   const s = await getSiteSettings();
   return (
     <>
-      <main className="relative flex flex-1 items-center justify-center overflow-hidden bg-linear-to-br from-ink via-ink-soft to-[#3a2218] px-4 py-12">
+      <main className="relative flex flex-1 items-center justify-center overflow-hidden bg-linear-to-br from-ink via-ink-soft to-header-end px-4 py-12">
         {/* Soft accent glows behind the card */}
         <div aria-hidden="true" className="pointer-events-none absolute -left-32 -top-32 h-96 w-96 rounded-full bg-accent/30 blur-3xl" />
         <div aria-hidden="true" className="pointer-events-none absolute -bottom-40 -right-24 h-[28rem] w-[28rem] rounded-full bg-gold/15 blur-3xl" />

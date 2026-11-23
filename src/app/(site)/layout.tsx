@@ -1,11 +1,21 @@
 import type { Metadata } from "next";
-import { Montserrat, Roboto } from "next/font/google";
+import { Barlow_Condensed, Inter, Montserrat, Open_Sans, Oswald, Roboto, Roboto_Slab } from "next/font/google";
 import "./globals.css";
-import { getSiteSettings } from "@/sanity/content";
+import { getPluginSettings, getSiteSettings, getThemeSettings } from "@/sanity/content";
+import { themeCss } from "@/lib/theme";
+import { SitePlugins } from "@/components/site-plugins";
+import { PageViewTracker } from "@/components/page-view-tracker";
 
-// Both are variable fonts, so no weight list is needed. Self-hosted by next/font.
+// Self-hosted by next/font. Every font the theme can pick is declared, but browsers only
+// download the ones the page actually uses (Sanity → Appearance → Theme).
 const roboto = Roboto({ subsets: ["latin"], variable: "--font-roboto", display: "swap" });
 const montserrat = Montserrat({ subsets: ["latin"], variable: "--font-montserrat", display: "swap" });
+const oswald = Oswald({ subsets: ["latin"], variable: "--font-oswald", display: "swap" });
+const barlowCondensed = Barlow_Condensed({ subsets: ["latin"], weight: ["500", "600", "700"], variable: "--font-barlowCondensed", display: "swap" });
+const robotoSlab = Roboto_Slab({ subsets: ["latin"], variable: "--font-robotoSlab", display: "swap" });
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
+const openSans = Open_Sans({ subsets: ["latin"], variable: "--font-openSans", display: "swap" });
+const fontVars = [roboto, montserrat, oswald, barlowCondensed, robotoSlab, inter, openSans].map((f) => f.variable).join(" ");
 
 export async function generateMetadata(): Promise<Metadata> {
   const s = await getSiteSettings();
@@ -15,10 +25,20 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const [theme, plugins] = await Promise.all([getThemeSettings(), getPluginSettings()]);
+  const css = themeCss(theme);
   return (
-    <html lang="en" className={`${roboto.variable} ${montserrat.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col">{children}</body>
+    <html lang="en" className={`${fontVars} h-full antialiased`}>
+      <head>
+        {/* Theme colors, fonts and corners from Sanity. themeCss only emits validated values. */}
+        {css && <style id="portal-theme" dangerouslySetInnerHTML={{ __html: css }} />}
+      </head>
+      <body className="min-h-full flex flex-col">
+        {children}
+        <PageViewTracker />
+        <SitePlugins analytics={plugins.analytics} consent={plugins.cookieConsent} />
+      </body>
     </html>
   );
 }

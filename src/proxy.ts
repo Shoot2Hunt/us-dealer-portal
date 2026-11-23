@@ -2,7 +2,12 @@ import { NextResponse, type NextRequest } from "next/server";
 import { readSession, SESSION_COOKIE } from "@/lib/auth/token";
 
 /** Everything is behind sign-in except these. */
-const PUBLIC = ["/login", "/request-access", "/forgot-password", "/set-password", "/legal", "/studio", "/api/webhooks", "/api/cron", "/api/revalidate"];
+const PUBLIC = [
+  "/login", "/request-access", "/forgot-password", "/set-password", "/legal", "/contact", "/studio",
+  "/api/webhooks", "/api/cron", "/api/revalidate", "/api/track",
+  // Checks the portal session itself and answers 401/403, so Studio can show a sign-in hint.
+  "/api/admin/stats",
+];
 
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;

@@ -12,7 +12,7 @@ import {
   getTwoFactorUser,
   hashPassword,
   issueSetupToken,
-  MIN_PASSWORD_LENGTH,
+
   RESET_LINK_TTL_MS,
   signOutOtherSessions,
   startSession,
@@ -20,6 +20,8 @@ import {
   twoFactorEnabled,
 } from "@/lib/auth/session";
 import { checkSecondFactor } from "@/lib/auth/two-factor";
+import { passwordProblem } from "@/lib/auth/password-policy";
+import { clearLoginFailures, lockedMinutes, lockoutMessage, recordLoginFailure } from "@/lib/auth/throttle";
 import { appUrl, sendEmail } from "@/lib/email";
 import {
   accessRequestCopy,
@@ -49,11 +51,16 @@ export async function login(_: FormState, form: FormData): Promise<FormState> {
   let user: User | undefined;
   let needsCode = false;
   try {
+    const locked = await lockedMinutes(email);
+    if (locked) return { error: lockoutMessage(locked) };
     [user] = await db().select().from(users).where(eq(users.email, email));
     // Same message for every failure so emails can't be probed.
     if (!user || user.status !== "active" || !user.passwordHash || !(await checkPassword(password, user.passwordHash))) {
+      const nowLocked = await recordLoginFailure(email);
+      if (nowLocked) return { error: lockoutMessage(nowLocked) };
       return { error: "That email and password don't match an active dealer account." };
     }
+    await clearLoginFailures(email);
     needsCode = twoFactorEnabled(user);
     if (needsCode) await startTwoFactor(user, next);
     else await startSession(user);
@@ -191,7 +198,8 @@ export async function setPassword(_: FormState, form: FormData): Promise<FormSta
   const token = String(form.get("token") ?? "");
   const password = String(form.get("password") ?? "");
   const confirm = String(form.get("confirm") ?? "");
-  if (password.length < MIN_PASSWORD_LENGTH) return { error: `Use at least ${MIN_PASSWORD_LENGTH} characters.` };
+  const problem = await passwordProblem(password);
+  if (problem) return { error: problem };
   if (password !== confirm) return { error: "The passwords don't match." };
 
   let user: User | null;

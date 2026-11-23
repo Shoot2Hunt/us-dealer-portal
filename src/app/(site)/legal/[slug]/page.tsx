@@ -24,7 +24,7 @@ export default async function LegalPage({ params }: PageProps<"/legal/[slug]">) 
 
   return (
     <>
-      <header className="border-b-2 border-accent bg-linear-to-r from-ink via-ink-soft to-[#3a2218] text-white">
+      <header className="border-b-2 border-accent bg-linear-to-r from-ink via-ink-soft to-header-end text-white">
         <div className="mx-auto flex max-w-7xl items-center gap-4 px-4 py-3">
           <Link href="/" className="font-display text-lg font-bold tracking-tight transition-colors hover:text-accent-light">
             {s.portalName ?? "Dealer Portal"}

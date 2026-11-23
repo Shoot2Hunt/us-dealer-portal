@@ -306,7 +306,12 @@ function Row({ item }: { item: CatalogItem }) {
           </div>
         </div>
       </td>
-      <td className="px-3 py-2 text-muted">{item.brandName}</td>
+      <td className="px-3 py-2 text-muted">
+        <span className="inline-flex items-center gap-1.5">
+          {item.brandColor && <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: item.brandColor }} aria-hidden="true" />}
+          {item.brandName}
+        </span>
+      </td>
       <td className="px-3 py-2">
         {!item.inStock ? (
           <span className="badge bg-red-50 text-red-700">Out of stock</span>
