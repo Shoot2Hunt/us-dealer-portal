@@ -19,6 +19,8 @@ export type EmailMessage = {
 export type EmailResult = { ok: true; id?: string } | { ok: false; error: string };
 
 const MAX_ATTEMPTS = 3;
+/** A single plain address: no spaces, angle brackets, commas or line breaks. */
+const EMAIL = /^[^\s@<>,;"]+@[^\s@<>,;"]+\.[^\s@<>,;"]+$/;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 type Delivery = { status: "sent" | "failed" | "logged"; attempts: number; providerId?: string; error?: string };
@@ -70,9 +72,16 @@ async function deliver(to: string[], msg: Pick<EmailMessage, "subject" | "text" 
  * or checkout. Every attempt is recorded in email_log and failures show up on
  * /admin/emails, where they can be retried.
  */
-export async function sendEmail(msg: EmailMessage): Promise<EmailResult> {
-  const to = (Array.isArray(msg.to) ? msg.to : [msg.to]).map((s) => s.trim()).filter(Boolean);
-  if (!to.length) return { ok: false, error: "No recipients" };
+export async function sendEmail(input: EmailMessage): Promise<EmailResult> {
+  // Header hygiene for anything built from user input (names, company, contact form):
+  // no line breaks in the subject (SMTP header injection), and only real addresses.
+  const msg: EmailMessage = {
+    ...input,
+    subject: input.subject.replace(/[\r\n\t]+/g, " ").trim().slice(0, 250),
+    replyTo: input.replyTo && EMAIL.test(input.replyTo.trim()) ? input.replyTo.trim() : undefined,
+  };
+  const to = (Array.isArray(msg.to) ? msg.to : [msg.to]).map((s) => s.trim()).filter((s) => EMAIL.test(s));
+  if (!to.length) return { ok: false, error: "No valid recipients" };
 
   let result: Delivery;
   try {

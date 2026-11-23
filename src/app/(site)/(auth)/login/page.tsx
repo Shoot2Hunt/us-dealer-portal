@@ -9,7 +9,8 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
     <>
       <h1 className="text-lg font-semibold">Dealer sign in</h1>
       {s.loginMessage && <p className="mt-1 text-sm text-muted">{s.loginMessage}</p>}
-      <LoginForm next={typeof next === "string" ? next : ""} />
+      {/* Only plain same-site paths get through; the sign-in action checks again (safeNext). */}
+      <LoginForm next={typeof next === "string" && next.startsWith("/") && !next.startsWith("//") && next.length <= 500 ? next : ""} />
       <p className="mt-6 border-t border-line pt-4 text-sm text-muted">
         Not a dealer yet?{" "}
         <Link href="/request-access" className="font-medium text-accent hover:underline">

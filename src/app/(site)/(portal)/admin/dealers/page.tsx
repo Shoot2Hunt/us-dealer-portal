@@ -9,6 +9,7 @@ import { createAdmin, resendSetupLink, resetTwoFactor, updateDealer } from "../a
 
 export default async function DealersPage() {
   const admin = await requireAdmin();
+  const isSuper = admin.role === "super_admin";
   const all = await db().select().from(users).orderBy(asc(users.company), asc(users.name));
   const dealers = all.filter((u) => u.role === "dealer");
   const admins = all.filter((u) => u.role !== "dealer");
@@ -33,6 +34,8 @@ export default async function DealersPage() {
                 <LicenseDocPreview compact docs={docs.filter((doc) => doc.userId === d.id)} />
               </div>
             </div>
+            {/* Licence, brand access and suspension are super-admin decisions (segregation of duties). */}
+            <fieldset disabled={!isSuper} className="contents" title={isSuper ? undefined : "Only super admins can change these"}>
             <div className="space-y-2">
               <label className="block">FFL expires <input type="date" name="fflExpires" defaultValue={d.fflExpires ?? ""} className="input mt-1" /></label>
               <label className="flex items-center gap-2"><input type="checkbox" name="sotVerified" defaultChecked={d.sotVerified} /> SOT verified</label>
@@ -46,12 +49,13 @@ export default async function DealersPage() {
                 </label>
               ))}
             </div>
+            </fieldset>
             <div className="flex flex-col gap-2">
-              <select name="status" defaultValue={d.status} className="input">
+              <select name="status" defaultValue={d.status} className="input" disabled={!isSuper}>
                 <option value="active">Active</option>
                 <option value="suspended">Suspended</option>
               </select>
-              <button className="btn">Save</button>
+              {isSuper ? <button className="btn">Save</button> : <p className="text-xs text-muted">Only super admins can change licences, brands or status.</p>}
               <button formAction={resendSetupLink} className="btn-ghost">Send password link</button>
               {admin.role === "super_admin" && d.totpEnabledAt && (
                 <button formAction={resetTwoFactor} formNoValidate className="btn-ghost text-red-700" title="Turns off two-step verification and signs them out. Use when they've lost their phone and recovery codes.">

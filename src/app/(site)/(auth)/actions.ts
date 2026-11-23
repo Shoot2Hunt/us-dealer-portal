@@ -22,6 +22,7 @@ import {
 import { checkSecondFactor } from "@/lib/auth/two-factor";
 import { passwordProblem } from "@/lib/auth/password-policy";
 import { clearLoginFailures, lockedMinutes, lockoutMessage, recordLoginFailure } from "@/lib/auth/throttle";
+import { clientKey, rateLimit, tooManyMessage } from "@/lib/rate-limit";
 import { appUrl, sendEmail } from "@/lib/email";
 import {
   accessRequestCopy,
@@ -48,9 +49,14 @@ export async function login(_: FormState, form: FormData): Promise<FormState> {
   const email = String(form.get("email") ?? "").trim().toLowerCase();
   const password = String(form.get("password") ?? "");
   const next = safeNext(String(form.get("next") ?? ""));
+  if (!z.email().safeParse(email).success) return { error: "Enter a valid email address." };
+  if (!password) return { error: "Enter your password." };
   let user: User | undefined;
   let needsCode = false;
   try {
+    // Per network, across all emails: stops password spraying. Per-email lockout follows.
+    const limit = await rateLimit(`login:${await clientKey()}`, 30, 15);
+    if (!limit.ok) return { error: tooManyMessage(limit.retryMinutes) };
     const locked = await lockedMinutes(email);
     if (locked) return { error: lockoutMessage(locked) };
     [user] = await db().select().from(users).where(eq(users.email, email));
@@ -71,8 +77,21 @@ export async function login(_: FormState, form: FormData): Promise<FormState> {
   redirect(needsCode ? "/login/verify" : next || homeFor(user));
 }
 
-/** Only same-site paths, so a crafted ?next= can't send people to another site. */
-const safeNext = (next: string) => (next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "");
+/**
+ * Only same-site paths, so a crafted ?next= can't send people to another site. Rejects
+ * backslashes and control characters too: browsers drop tabs/newlines, so "/\t/evil.com"
+ * would otherwise turn into "//evil.com".
+ */
+function safeNext(next: string): string {
+  const unsafeChar = [...next].some((c) => c === "\\" || c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127);
+  if (!next.startsWith("/") || next.startsWith("//") || unsafeChar || next.length > 500) return "";
+  try {
+    const u = new URL(next, "https://portal.invalid");
+    return u.origin === "https://portal.invalid" ? u.pathname + u.search + u.hash : "";
+  } catch {
+    return "";
+  }
+}
 const homeFor = (user: User) => (user.role === "dealer" ? "/inventory" : "/admin");
 
 /** Second step of sign-in: the authenticator code (or a recovery code). */
@@ -80,6 +99,8 @@ export async function verifyLogin(_: FormState, form: FormData): Promise<FormSta
   const code = String(form.get("code") ?? "");
   let pending: Awaited<ReturnType<typeof getTwoFactorUser>>;
   try {
+    const limit = await rateLimit(`2fa:${await clientKey()}`, 20, 15);
+    if (!limit.ok) return { error: tooManyMessage(limit.retryMinutes) };
     pending = await getTwoFactorUser();
     if (!pending) return { error: "Your sign-in timed out. Go back and enter your email and password again." };
     const result = await checkSecondFactor(pending.user, code);
@@ -107,13 +128,22 @@ export async function logout() {
 }
 
 const requestSchema = z.object({
-  name: z.string().trim().min(2, "Enter your name"),
-  email: z.email("Enter a valid email").transform((s) => s.toLowerCase()),
-  company: z.string().trim().min(2, "Enter your company"),
-  phone: z.string().trim().optional(),
+  name: z.string().trim().min(2, "Enter your name").max(100, "Name is too long (100 characters max)"),
+  email: z.email("Enter a valid email address").max(200).transform((s) => s.toLowerCase()),
+  company: z.string().trim().min(2, "Enter your company").max(120, "Company name is too long (120 characters max)"),
+  phone: z.string().trim().max(40, "Phone number is too long").regex(/^[\d\s()+.\-x]*$/i, "Phone numbers can only contain digits, spaces and + ( ) - .").optional(),
   brandSlug: z.string().refine(isStoreKey, "Choose a brand"),
-  fflNumber: z.string().trim().min(5, "Enter your FFL number"),
-  fflExpires: z.string().optional(),
+  fflNumber: z
+    .string()
+    .trim()
+    .min(5, "Enter your FFL number")
+    .max(40, "That FFL number is too long")
+    .regex(/^[A-Za-z0-9\-\s]+$/, "FFL numbers can only contain letters, numbers and dashes"),
+  fflExpires: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Enter the FFL expiry as a date")
+    .refine((d) => !Number.isNaN(Date.parse(d)), "Enter a real date for the FFL expiry")
+    .optional(),
   hasSot: z.boolean(),
   message: z.string().trim().max(2000).optional(),
 });
@@ -135,6 +165,11 @@ export async function requestAccess(_: FormState, form: FormData): Promise<FormS
   const wantsCopy = form.get("sendCopy") === "on";
 
   try {
+    // Anti-automation: a few requests per network per hour, and per email per day.
+    const [byIp, byEmail] = await Promise.all([rateLimit(`access:${await clientKey()}`, 5, 60), rateLimit(`access-email:${r.email}`, 3, 24 * 60)]);
+    if (!byIp.ok) return { error: tooManyMessage(byIp.retryMinutes) };
+    if (!byEmail.ok) return { error: "We've already received requests from this email today. We'll be in touch, or contact us directly." };
+
     // Optional copies of the FFL and SOT. Validate both before saving anything.
     const files: ValidatedLicenseFile[] = [];
     for (const [field, kind] of [["fflFile", "ffl"], ["sotFile", "sot"]] as const) {
@@ -175,6 +210,9 @@ export async function requestPasswordReset(_: FormState, form: FormData): Promis
   const parsed = z.email().safeParse(String(form.get("email") ?? "").trim().toLowerCase());
   if (!parsed.success) return { error: "Enter a valid email address." };
   const email = parsed.data;
+  // Per network only, so the reply still says nothing about whether the email has an account.
+  const limit = await rateLimit(`reset:${await clientKey()}`, 10, 60);
+  if (!limit.ok) return { error: tooManyMessage(limit.retryMinutes) };
 
   // Do the lookup and send after responding, so the reply is the same (and just as fast)
   // whether or not the email has an account. That stops anyone probing for dealer emails.
@@ -205,8 +243,13 @@ export async function setPassword(_: FormState, form: FormData): Promise<FormSta
   let user: User | null;
   let needsCode = false;
   try {
+    const limit = await rateLimit(`setpw:${await clientKey()}`, 20, 60);
+    if (!limit.ok) return { error: tooManyMessage(limit.retryMinutes) };
     user = await findUserBySetupToken(token);
     if (!user) return { error: "This link has expired or was already used. Use \"Forgot password\" on the sign-in page to get a new one." };
+    // Now that we know whose password it is, also reject one containing their email.
+    const personal = await passwordProblem(password, { email: user.email, name: user.name });
+    if (personal) return { error: personal };
     // New password: sign out every other device that was using the old one.
     const updated = await signOutOtherSessions(user.id, {
       passwordHash: await hashPassword(password),

@@ -307,3 +307,24 @@ export const loginThrottle = pgTable("login_throttle", {
   firstFailureAt: timestamp("first_failure_at", { withTimezone: true }).notNull().defaultNow(),
   lockedUntil: timestamp("locked_until", { withTimezone: true }),
 });
+
+/**
+ * Who did what in the admin area, and when (non-repudiation). Append-only: the app never
+ * updates or deletes rows here.
+ */
+export const auditLog = pgTable(
+  "audit_log",
+  {
+    id: serial("id").primaryKey(),
+    actorId: uuid("actor_id").notNull(),
+    actorEmail: text("actor_email").notNull(),
+    action: text("action").notNull(),
+    /** What it was done to, e.g. "user:<id>", "order:<id>", "payment:<id>". */
+    target: text("target"),
+    details: jsonb("details").$type<Record<string, unknown>>(),
+    ip: text("ip"),
+    userAgent: text("user_agent"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("audit_log_created_at").on(t.createdAt)],
+);

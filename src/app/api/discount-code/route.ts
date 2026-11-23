@@ -5,10 +5,11 @@ import { db, inventory } from "@/lib/db";
 import { getApiUser } from "@/lib/auth/session";
 import { loadCatalogContext, toCatalogItem } from "@/lib/catalog";
 import { evaluateDiscount, type DiscountLine } from "@/lib/discounts";
+import { rateLimit } from "@/lib/rate-limit";
 
 const body = z.object({
   code: z.string().trim().min(1).max(30),
-  lines: z.array(z.object({ id: z.number().int(), quantity: z.number().int().min(1) })).min(1).max(200),
+  lines: z.array(z.object({ id: z.number().int().positive(), quantity: z.number().int().min(1).max(10_000) })).min(1).max(200),
 });
 
 /**
@@ -18,6 +19,9 @@ const body = z.object({
 export async function POST(req: NextRequest) {
   const user = await getApiUser();
   if (!user) return NextResponse.json({ ok: false, error: "Please sign in again." }, { status: 401 });
+  // Stops guessing codes by brute force.
+  const limit = await rateLimit(`code:${user.id}`, 15, 15);
+  if (!limit.ok) return NextResponse.json({ ok: false, error: `Too many code attempts. Try again in ${limit.retryMinutes} minute${limit.retryMinutes === 1 ? "" : "s"}.` }, { status: 429 });
   const parsed = body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ ok: false, error: "Enter a discount code." }, { status: 400 });
 

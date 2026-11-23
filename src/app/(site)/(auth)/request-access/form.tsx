@@ -43,25 +43,25 @@ export function RequestAccessForm({ brands }: { brands: { value: string; label: 
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="label" htmlFor="name">Your name</label>
-          <input className="input" id="name" name="name" required />
+          <input className="input" id="name" name="name" required minLength={2} maxLength={100} autoComplete="name" />
         </div>
         <div>
           <label className="label" htmlFor="phone">Phone</label>
-          <input className="input" id="phone" name="phone" type="tel" />
+          <input className="input" id="phone" name="phone" type="tel" maxLength={40} autoComplete="tel" />
         </div>
       </div>
       <div>
         <label className="label" htmlFor="email">Email</label>
-        <input className="input" id="email" name="email" type="email" required />
+        <input className="input" id="email" name="email" type="email" required maxLength={200} autoComplete="email" />
       </div>
       <div>
         <label className="label" htmlFor="company">Business name</label>
-        <input className="input" id="company" name="company" required />
+        <input className="input" id="company" name="company" required minLength={2} maxLength={120} autoComplete="organization" />
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="label" htmlFor="fflNumber">FFL number</label>
-          <input className="input" id="fflNumber" name="fflNumber" required />
+          <input className="input" id="fflNumber" name="fflNumber" required minLength={5} maxLength={40} pattern="[A-Za-z0-9 -]+" title="Letters, numbers and dashes" />
         </div>
         <div>
           <label className="label" htmlFor="fflExpires">FFL expires</label>
@@ -89,7 +89,7 @@ export function RequestAccessForm({ brands }: { brands: { value: string; label: 
       </fieldset>
       <div>
         <label className="label" htmlFor="message">Anything else? (optional)</label>
-        <textarea className="input" id="message" name="message" rows={3} />
+        <textarea className="input" id="message" name="message" rows={3} maxLength={2000} />
       </div>
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" name="sendCopy" defaultChecked /> Email me a copy of this request

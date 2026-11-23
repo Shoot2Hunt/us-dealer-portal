@@ -11,8 +11,10 @@ export default async function AdminOrderPage({ params }: PageProps<"/admin/order
   const admin = await requireAdmin();
   const detail = await getOrderForUser(admin, id).catch(() => null);
   if (!detail) notFound();
-  const checks = detail.payments.filter((p) => p.method === "check" && p.status === "awaiting_check");
-  const failed = detail.storeOrders.filter((s) => !s.wooOrderId);
+  // Only show buttons the admin may use: checks are super-admin only; retries for their own brand.
+  const isSuper = admin.role === "super_admin";
+  const checks = isSuper ? detail.payments.filter((p) => p.method === "check" && p.status === "awaiting_check") : [];
+  const failed = detail.storeOrders.filter((s) => !s.wooOrderId && (isSuper || s.store === admin.brandSlug));
   return (
     <div className="space-y-4">
       {(checks.length > 0 || failed.length > 0) && (

@@ -22,7 +22,10 @@ export async function passwordProblem(password: string, context: { email?: strin
   const policy = await getSecuritySettings();
   const min = Math.max(MIN_PASSWORD_LENGTH, policy.passwordMinLength);
   if (password.length < min) return `Use at least ${min} characters.`;
-  if (password.length > 200) return "Use 200 characters or fewer.";
+  // bcrypt only uses the first 72 bytes and silently ignores the rest, so longer passwords
+  // would give a false sense of strength. (Accented letters and emoji take 2–4 bytes.)
+  if (Buffer.byteLength(password, "utf8") > 72) return "Use 72 characters or fewer (a little less if you use accented letters or emoji).";
+  if (password.trim() !== password) return "Passwords can't start or end with a space.";
   if (policy.blockCommonPasswords) {
     const lower = password.toLowerCase();
     const emailName = context.email?.split("@")[0]?.toLowerCase();

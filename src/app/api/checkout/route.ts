@@ -13,7 +13,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Ordering is paused for maintenance. Please try again soon." }, { status: 503 });
   }
   const parsed = checkoutSchema.safeParse(await req.json().catch(() => null));
-  if (!parsed.success) return NextResponse.json({ ok: false, error: "Check your shipping and payment details." }, { status: 400 });
+  if (!parsed.success) {
+    // Say which field is wrong. Our own messages are used as-is; zod's built-in ones get a field name.
+    const issue = parsed.error.issues[0];
+    const field = issue?.path.filter((p) => typeof p === "string").at(-1);
+    const LABELS: Record<string, string> = {
+      firstName: "First name", lastName: "Last name", company: "Business", address1: "Address", address2: "Address line 2",
+      city: "City", state: "State", postcode: "ZIP", phone: "Phone", poNumber: "PO number", notes: "Notes", quantity: "Quantity",
+      amount: "Payment amount", lines: "Cart", payments: "Payments", discountCode: "Discount code",
+    };
+    const custom = issue?.code === "invalid_format" || issue?.code === "custom";
+    const error = issue
+      ? custom
+        ? issue.message
+        : `${LABELS[String(field)] ?? "Your order"}: ${issue.code === "too_big" ? "too long or too large" : issue.code === "too_small" ? "required or too small" : "isn't valid"}.`
+      : "Check your shipping and payment details.";
+    return NextResponse.json({ ok: false, error }, { status: 400 });
+  }
   try {
     const result = await placeOrder(user, parsed.data);
     return NextResponse.json(result, { status: result.ok ? 200 : 422 });

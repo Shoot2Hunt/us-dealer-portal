@@ -21,22 +21,24 @@ import { evaluateDiscount } from "@/lib/discounts";
 import { isStoreKey, storeName, type StoreKey } from "@/lib/woo/stores";
 import { appUrl, sendEmail } from "@/lib/email";
 
+// Every field has an upper bound: these values go to WooCommerce and into emails.
 const addressSchema = z.object({
-  firstName: z.string().trim().min(1),
-  lastName: z.string().trim().min(1),
-  company: z.string().trim().optional(),
-  address1: z.string().trim().min(1),
-  address2: z.string().trim().optional(),
-  city: z.string().trim().min(1),
-  state: z.string().trim().length(2),
-  postcode: z.string().trim().min(5),
-  phone: z.string().trim().optional(),
+  firstName: z.string().trim().min(1).max(60),
+  lastName: z.string().trim().min(1).max(60),
+  company: z.string().trim().max(120).optional(),
+  address1: z.string().trim().min(1).max(120),
+  address2: z.string().trim().max(120).optional(),
+  city: z.string().trim().min(1).max(80),
+  state: z.string().trim().regex(/^[A-Za-z]{2}$/, "Use the 2-letter state code"),
+  postcode: z.string().trim().regex(/^[0-9]{5}(-[0-9]{4})?$/, "Enter a 5-digit ZIP code"),
+  phone: z.string().trim().max(40).optional(),
 });
 
-const opaque = z.object({ dataDescriptor: z.string(), dataValue: z.string() });
+const opaque = z.object({ dataDescriptor: z.string().max(100), dataValue: z.string().max(4000) });
 
 export const checkoutSchema = z.object({
-  lines: z.array(z.object({ id: z.number().int(), quantity: z.number().int().min(1) })).min(1),
+  // Bounded so totals stay well inside safe integer cents.
+  lines: z.array(z.object({ id: z.number().int().positive(), quantity: z.number().int().min(1).max(10_000) })).min(1).max(200),
   shipping: addressSchema,
   poNumber: z.string().trim().max(50).optional(),
   notes: z.string().trim().max(1000).optional(),
@@ -46,11 +48,12 @@ export const checkoutSchema = z.object({
     .array(
       z.object({
         method: z.enum(["card", "ach", "check"]),
-        amount: z.number().positive(),
+        amount: z.number().positive().max(10_000_000),
         token: opaque.optional(),
       }),
     )
-    .min(1),
+    .min(1)
+    .max(5),
 });
 
 export type CheckoutInput = z.infer<typeof checkoutSchema>;
@@ -250,7 +253,14 @@ export async function markPaymentProblem(orderId: string, paymentId: number, rea
   await sendEmail({ kind: "order.payment_problem", to: process.env.ADMIN_NOTIFY_EMAIL ?? "", subject: `Payment problem on order #${order?.number}`, text: `${reason}\n\n${appUrl(`/admin/orders/${orderId}`)}` });
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * An order as `user` may see it, or null. Dealers: their own orders only. Brand admins:
+ * only orders that include their brand. Super admins: any order.
+ */
 export async function getOrderForUser(user: User, orderId: string) {
+  if (!UUID.test(orderId)) return null;
   const where = user.role === "dealer" ? and(eq(orders.id, orderId), eq(orders.userId, user.id)) : eq(orders.id, orderId);
   const [order] = await db().select().from(orders).where(where);
   if (!order) return null;
@@ -259,5 +269,6 @@ export async function getOrderForUser(user: User, orderId: string) {
     db().select().from(storeOrders).where(eq(storeOrders.orderId, orderId)),
     db().select().from(payments).where(eq(payments.orderId, orderId)),
   ]);
+  if (user.role === "brand_admin" && !sos.some((s) => s.store === user.brandSlug)) return null;
   return { order, lines, storeOrders: sos, payments: ps };
 }

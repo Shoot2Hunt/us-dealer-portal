@@ -154,8 +154,9 @@ export function CheckoutForm({
           {field("address2", "Address line 2")}
           <div className="grid grid-cols-3 gap-3">
             {field("city", "City", { required: true })}
-            {field("state", "State", { required: true, maxLength: 2, placeholder: "ID" })}
-            {field("postcode", "ZIP", { required: true })}
+            {/* Same rules as the server (src/lib/orders.ts), so mistakes are caught before submitting. */}
+            {field("state", "State", { required: true, minLength: 2, maxLength: 2, pattern: "[A-Za-z]{2}", title: "2-letter state code, e.g. ID", placeholder: "ID" })}
+            {field("postcode", "ZIP", { required: true, pattern: "[0-9]{5}(-[0-9]{4})?", title: "5-digit ZIP code, e.g. 83814", inputMode: "numeric", maxLength: 10 })}
           </div>
           <div className="grid grid-cols-2 gap-3">
             {field("phone", "Phone")}

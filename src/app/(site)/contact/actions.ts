@@ -9,6 +9,7 @@ import { appUrl, sendEmail } from "@/lib/email";
 import { reportError } from "@/lib/errors";
 import { getSiteSettings } from "@/sanity/content";
 import { sanityWriter } from "@/sanity/write";
+import { rateLimit } from "@/lib/rate-limit";
 
 export type ContactState = { ok?: boolean; error?: string } | undefined;
 
@@ -48,6 +49,9 @@ export async function sendContactMessage(_: ContactState, form: FormData): Promi
   const h = await headers();
   const ip = h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || "unknown";
   const ipHash = sign(`ip|${ip}`).slice(0, 24);
+  // Works even when Sanity isn't configured (the Sanity-side count below is a second check).
+  const limit = await rateLimit(`contact:${ipHash}`, HOURLY_LIMIT, 60);
+  if (!limit.ok) return { error: "You've sent several messages recently. Please wait a while, or email us directly." };
   const [user, settings] = await Promise.all([getCurrentUser(), getSiteSettings()]);
   const writer = sanityWriter();
 
