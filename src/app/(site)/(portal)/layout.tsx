@@ -5,6 +5,7 @@ import { CartProvider } from "@/components/cart";
 import { CartDrawer } from "@/components/cart-drawer";
 import { CartLink } from "@/components/cart-link";
 import { NavLink } from "@/components/nav-link";
+import { SiteFooter } from "@/components/site-footer";
 import { UserMenu } from "@/components/user-menu";
 
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
@@ -48,6 +49,7 @@ export default async function PortalLayout({ children }: { children: React.React
         </div>
       </header>
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8">{children}</main>
+      <SiteFooter />
       <CartDrawer />
     </CartProvider>
   );

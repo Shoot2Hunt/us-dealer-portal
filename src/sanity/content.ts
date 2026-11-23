@@ -51,6 +51,7 @@ export type Brand = {
   storeKey: string;
   active: boolean;
   logoUrl?: string;
+  website?: string;
   description?: string;
   notificationEmails?: string[];
   dealerDiscountPercent?: number;
@@ -94,7 +95,7 @@ export async function getPaymentSettings(): Promise<PaymentSettings> {
 export async function getBrands(): Promise<Brand[]> {
   return (
     (await q<Brand[]>(
-      `*[_type == "brand"] | order(sortOrder asc){name, storeKey, "active": coalesce(active, true), "logoUrl": logo.asset->url, description, notificationEmails, dealerDiscountPercent, sotRequiredCategories, shippingRestrictions[]{categorySlug, states, message}}`,
+      `*[_type == "brand"] | order(sortOrder asc){name, storeKey, "active": coalesce(active, true), "logoUrl": logo.asset->url, website, description, notificationEmails, dealerDiscountPercent, sotRequiredCategories, shippingRestrictions[]{categorySlug, states, message}}`,
     )) ?? []
   );
 }

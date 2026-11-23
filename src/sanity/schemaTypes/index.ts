@@ -67,6 +67,12 @@ export const brand = defineType({
     }),
     defineField({ name: "active", title: "Show in portal", type: "boolean", initialValue: true }),
     defineField({ name: "logo", type: "image" }),
+    defineField({
+      name: "website",
+      title: "Website",
+      description: "Linked from the portal footer. Leave blank to use the store's WooCommerce URL.",
+      type: "url",
+    }),
     defineField({ name: "description", type: "text", rows: 3 }),
     defineField({ name: "sortOrder", type: "number", initialValue: 0 }),
     defineField({
@@ -161,7 +167,8 @@ export const page = defineType({
   name: "page",
   title: "Page",
   type: "document",
-  description: "Terms, FAQ, shipping policy and other pages dealers can read at /p/<slug>.",
+  description:
+    "Terms, FAQ, shipping policy and other pages dealers can read at /p/<slug>. The footer's policy links use the slugs terms-and-conditions, privacy-policy and return-policy; those three are also public at /legal/<slug>.",
   fields: [
     defineField({ name: "title", type: "string", validation: (r) => r.required() }),
     defineField({ name: "slug", type: "slug", options: { source: "title" }, validation: (r) => r.required() }),
