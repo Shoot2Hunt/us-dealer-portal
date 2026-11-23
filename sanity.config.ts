@@ -60,59 +60,39 @@ export default defineConfig({
   plugins: [
     structureTool({
       structure: (S) =>
+        // One flat menu: each group's items sit directly under a titled divider, instead of
+        // opening another column to the right.
         S.list()
           .title("Dealer Portal")
           .items([
-            S.listItem()
-              .title("Inbox")
-              .id("inbox")
-              .icon(InboxIcon)
-              .child(
-                S.list()
-                  .title("Contact messages")
-                  .items([
-                    inbox(S, "New", "new", EnvelopeIcon),
-                    inbox(S, "In progress", "in_progress", ClockIcon),
-                    inbox(S, "Resolved", "resolved", CheckmarkCircleIcon),
-                    S.divider(),
-                    inbox(S, "All messages", null, InboxIcon),
-                  ]),
-              ),
-            S.divider(),
-            S.listItem().title("Portal settings").id("siteSettings").child(S.document().schemaType("siteSettings").documentId("siteSettings")),
-            S.listItem().title("Payment settings").id("paymentSettings").child(S.document().schemaType("paymentSettings").documentId("paymentSettings")),
-            S.listItem()
-              .title("Appearance")
-              .id("appearance")
-              .icon(ColorWheelIcon)
-              .child(
-                S.list()
-                  .title("Appearance")
-                  .items([
-                    singleton(S, "themeSettings", "Theme", ColorWheelIcon),
-                    singleton(S, "headerSettings", "Header", MenuIcon),
-                    singleton(S, "footerSettings", "Footer", BlockElementIcon),
-                  ]),
-              ),
-            singleton(S, "securitySettings", "Security", LockIcon),
-            singleton(S, "pluginSettings", "Plugins", PlugIcon),
-            S.divider(),
+            S.divider().title("Inbox"),
+            inbox(S, "New messages", "new", EnvelopeIcon),
+            inbox(S, "In progress", "in_progress", ClockIcon),
+            inbox(S, "Resolved", "resolved", CheckmarkCircleIcon),
+            inbox(S, "All messages", null, InboxIcon),
+
+            S.divider().title("Catalog"),
             S.documentTypeListItem("brand").title("Brands"),
             S.documentTypeListItem("productOverride").title("Product settings").icon(ControlsIcon),
-            S.listItem()
-              .title("Promotions & codes")
-              .id("promotions")
-              .icon(SparklesIcon)
-              .child(
-                S.list()
-                  .title("Promotions & codes")
-                  .items([
-                    S.documentTypeListItem("promotion").title("Promotions").icon(SparklesIcon),
-                    S.documentTypeListItem("discountCode").title("Discount codes").icon(TagIcon),
-                  ]),
-              ),
+
+            S.divider().title("Promotions & codes"),
+            S.documentTypeListItem("promotion").title("Promotions").icon(SparklesIcon),
+            S.documentTypeListItem("discountCode").title("Discount codes").icon(TagIcon),
+
+            S.divider().title("Content"),
             S.documentTypeListItem("announcement").title("Announcements"),
             S.documentTypeListItem("page").title("Pages"),
+
+            S.divider().title("Appearance"),
+            singleton(S, "themeSettings", "Theme", ColorWheelIcon),
+            singleton(S, "headerSettings", "Header", MenuIcon),
+            singleton(S, "footerSettings", "Footer", BlockElementIcon),
+
+            S.divider().title("Settings"),
+            singleton(S, "siteSettings", "Portal settings"),
+            singleton(S, "paymentSettings", "Payment settings"),
+            singleton(S, "securitySettings", "Security", LockIcon),
+            singleton(S, "pluginSettings", "Plugins", PlugIcon),
           ]),
     }),
     visionTool({ defaultApiVersion: apiVersion }),
