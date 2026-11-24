@@ -370,3 +370,83 @@ export async function findDiscountCode(code: string): Promise<DiscountCodeDoc | 
     return null;
   }
 }
+
+// --- Custom plugins (Studio → Settings → Custom plugins) ---
+
+export type CustomPlugin = {
+  id: string;
+  name: string;
+  kind: "app" | "script";
+  /** The program: HTML for apps, an HTML snippet for site scripts. */
+  code: string;
+  slug?: string;
+  menuLabel?: string;
+  menuIcon?: string;
+  showAsPage: boolean;
+  embeds: ("inventory" | "product")[];
+  audience: "all" | "admins";
+  height: number;
+  shareProfile: boolean;
+  scriptScope: "portal" | "all";
+};
+
+/** Uploaded programs are capped so one bad upload can't bloat every page. */
+const MAX_PLUGIN_BYTES = 1_000_000;
+
+async function pluginFile(url: string): Promise<string | null> {
+  if (!url.startsWith("https://cdn.sanity.io/")) return null;
+  try {
+    const res = await fetch(url, { next: { revalidate: REVALIDATE, tags: ["sanity"] } });
+    if (!res.ok) return null;
+    const text = await res.text();
+    return text.length > MAX_PLUGIN_BYTES ? null : text;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Turned-on custom plugins with their code loaded. Site scripts are only returned once the
+ * admin has acknowledged that they run with full access.
+ */
+export const getCustomPlugins = cache(async (): Promise<CustomPlugin[]> => {
+  const rows =
+    (await q<
+      {
+        id: string; name?: string; kind?: string; source?: string; code?: string; fileUrl?: string; fileExt?: string;
+        slug?: string; menuLabel?: string; menuIcon?: string; showAsPage?: boolean; embeds?: string[]; audience?: string;
+        height?: number; shareProfile?: boolean; scriptScope?: string; acknowledged?: boolean;
+      }[]
+    >(
+      `*[_type == "customPlugin" && enabled == true]{
+        "id": _id, name, kind, source, code, "fileUrl": file.asset->url, "fileExt": file.asset->extension,
+        "slug": slug.current, menuLabel, menuIcon, showAsPage, embeds, audience, height, shareProfile, scriptScope, acknowledged
+      }`,
+    )) ?? [];
+
+  const out: CustomPlugin[] = [];
+  for (const r of rows) {
+    const kind = r.kind === "script" ? "script" : "app";
+    if (kind === "script" && r.acknowledged !== true) continue;
+    let code = r.source === "paste" ? (r.code ?? "") : r.fileUrl ? ((await pluginFile(r.fileUrl)) ?? "") : "";
+    // An uploaded .js file for a site script becomes a <script> block.
+    if (kind === "script" && r.source !== "paste" && r.fileExt === "js") code = `<script>${code.replace(/<\/script/gi, "<\\/script")}</script>`;
+    if (!code.trim() || code.length > MAX_PLUGIN_BYTES) continue;
+    out.push({
+      id: r.id,
+      name: r.name ?? "Plugin",
+      kind,
+      code,
+      slug: r.slug && /^[a-z0-9-]+$/.test(r.slug) ? r.slug : undefined,
+      menuLabel: r.menuLabel?.trim() || undefined,
+      menuIcon: r.menuIcon || undefined,
+      showAsPage: r.showAsPage !== false,
+      embeds: (r.embeds ?? []).filter((e): e is "inventory" | "product" => e === "inventory" || e === "product"),
+      audience: r.audience === "admins" ? "admins" : "all",
+      height: typeof r.height === "number" ? Math.min(4000, Math.max(100, r.height)) : 600,
+      shareProfile: r.shareProfile === true,
+      scriptScope: r.scriptScope === "all" ? "all" : "portal",
+    });
+  }
+  return out;
+});

@@ -5,6 +5,7 @@ import { getPluginSettings, getSiteSettings, getThemeSettings } from "@/sanity/c
 import { themeCss } from "@/lib/theme";
 import { SitePlugins } from "@/components/site-plugins";
 import { PageViewTracker } from "@/components/page-view-tracker";
+import { PluginScripts } from "@/components/plugin-slots";
 
 // Self-hosted by next/font. Every font the theme can pick is declared, but browsers only
 // download the ones the page actually uses (Sanity → Appearance → Theme).
@@ -43,6 +44,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         )}
         {children}
         <PageViewTracker />
+        <PluginScripts scope="all" />
         <SitePlugins analytics={plugins.analytics} consent={plugins.cookieConsent} />
       </body>
     </html>

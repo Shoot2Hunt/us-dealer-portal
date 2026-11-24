@@ -8,6 +8,8 @@ import { NavLink } from "@/components/nav-link";
 import { PageTransition } from "@/components/page-transition";
 import { SiteFooter } from "@/components/site-footer";
 import { UserMenu } from "@/components/user-menu";
+import { PluginScripts, visibleApps } from "@/components/plugin-slots";
+import { getCustomPlugins } from "@/sanity/content";
 
 /** Header link icons chosen in Sanity → Appearance → Header. Literal classes so Tailwind keeps them. */
 const NAV_ICON_CLASS: Record<string, string> = {
@@ -50,13 +52,18 @@ function HeaderLink({ link }: { link: NavItem }) {
 
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
   const user = await requireSignedIn();
-  const [s, pages, header, plugins] = await Promise.all([getSiteSettings(), getNavPages(), getHeaderSettings(), getPluginSettings()]);
+  const [s, pages, header, plugins, customPlugins] = await Promise.all([getSiteSettings(), getNavPages(), getHeaderSettings(), getPluginSettings(), getCustomPlugins()]);
+  // Custom apps with their own page and a menu label (Studio → Settings → Custom plugins).
+  const appLinks = visibleApps(customPlugins, user)
+    .filter((p) => p.showAsPage && p.slug && p.menuLabel)
+    .map((p) => ({ label: p.menuLabel!, href: `/apps/${p.slug}`, icon: p.menuIcon }));
   const admin = isAdmin(user);
   const maintenance = plugins.maintenance;
   const blocked = maintenance.enabled && !admin;
   const links = [
     ...(header.links.length ? header.links : DEFAULT_LINKS),
     ...(header.showPages ? pages.map((p) => ({ label: p.title, href: `/p/${p.slug}` })) : []),
+    ...appLinks,
     ...(header.showContact ? [{ label: "Contact", href: "/contact", icon: "mail" }] : []),
   ];
 
@@ -105,6 +112,7 @@ export default async function PortalLayout({ children }: { children: React.React
         {blocked ? <MaintenanceNotice {...maintenance} /> : <PageTransition>{children}</PageTransition>}
       </main>
       <SiteFooter />
+      <PluginScripts scope="portal" />
       {!blocked && <CartDrawer />}
     </CartProvider>
   );

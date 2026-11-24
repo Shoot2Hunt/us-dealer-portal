@@ -1,7 +1,8 @@
 import { defineArrayMember, defineField, defineType } from "sanity";
 import { contactSubmission, footerSettings, headerSettings, pluginSettings, securitySettings, themeSettings } from "./site";
 import { discountCode, promotion } from "./promotions";
-import { DealerPriceInput, SkuInput } from "../components/product-pricing";
+import { customPlugin } from "./plugins";
+import { DealerPriceInput } from "../components/product-pricing";
 
 /** US state codes used for shipping restrictions. */
 const STATE_OPTIONS = "AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY"
@@ -147,10 +148,14 @@ export const productOverride = defineType({
   title: "Product setting",
   type: "document",
   description: "Dealer-only settings for one WooCommerce product. Open products from Catalog → Products to link them automatically.",
-  fieldsets: [{ name: "link", title: "Linked WooCommerce product", options: { collapsible: true, collapsed: true } }],
   fields: [
     defineField({ name: "brand", type: "reference", to: [{ type: "brand" }], validation: (r) => r.required() }),
-
+    // Which product these settings belong to. Filled in automatically from Catalog → Products
+    // and used by the portal to match settings to products, so they're kept (not shown).
+    defineField({ name: "productId", title: "WooCommerce product ID", type: "number", hidden: true, readOnly: true }),
+    defineField({ name: "variationId", title: "WooCommerce variation ID", type: "number", hidden: true, readOnly: true }),
+    defineField({ name: "sku", title: "SKU", type: "string", hidden: true }),
+    defineField({ name: "label", title: "Label", type: "string", hidden: true }),
     defineField({ name: "hidden", title: "Hide from dealers", type: "boolean", initialValue: false }),
     defineField({
       name: "dealerPrice",
@@ -227,6 +232,7 @@ export const schemaTypes = [
   footerSettings,
   securitySettings,
   pluginSettings,
+  customPlugin,
   brand,
   productOverride,
   promotion,

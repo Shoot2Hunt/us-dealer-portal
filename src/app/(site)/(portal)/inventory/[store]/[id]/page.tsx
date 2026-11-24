@@ -7,6 +7,7 @@ import { getProduct } from "@/lib/catalog";
 import { sanitizeProductHtml } from "@/lib/sanitize";
 import { categoryLabel } from "../../filters";
 import { ProductView } from "./product-view";
+import { PluginEmbeds } from "@/components/plugin-slots";
 
 /** One lookup per request, shared by the metadata and the page. */
 const load = cache(async (store: string, id: string) => {
@@ -80,6 +81,8 @@ export default async function ProductPage({ params, searchParams }: PageProps<"/
           )}
         </div>
       )}
+
+      <PluginEmbeds slot="product" user={await requireUser()} />
 
       {product.categories.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 text-sm">

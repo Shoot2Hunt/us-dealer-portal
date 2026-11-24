@@ -182,6 +182,7 @@ export default defineConfig({
             singleton(S, "paymentSettings", "Payment settings"),
             singleton(S, "securitySettings", "Security", LockIcon),
             singleton(S, "pluginSettings", "Plugins", PlugIcon),
+            docList(S, "customPlugin", "Custom plugins", { type: "customPlugin" }, PlugIcon),
           ]),
     }),
     visionTool({ defaultApiVersion: apiVersion }),
