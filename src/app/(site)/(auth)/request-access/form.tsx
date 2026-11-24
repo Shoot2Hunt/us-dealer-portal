@@ -97,10 +97,6 @@ export function RequestAccessForm({ brands }: { brands: { value: string; label: 
           PDF, JPG, PNG or WebP, up to 2MB each.
       </p>
       {fileError && <p className="text-sm text-red-700">{fileError}</p>}
-      <div>
-        <label className="label" htmlFor="message">Anything else? (optional)</label>
-        <textarea className="input" id="message" name="message" rows={3} maxLength={2000} />
-      </div>
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" name="sendCopy" defaultChecked /> Email me a copy of this request
       </label>
