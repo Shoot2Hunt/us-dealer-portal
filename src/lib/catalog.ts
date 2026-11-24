@@ -164,6 +164,8 @@ export type ProductDetail = {
   specs: ProductSpec[];
   productUrl: string | null;
   variants: ProductVariant[];
+  /** When the oldest of its rows was last synced from WooCommerce. */
+  syncedAt: Date;
 };
 
 /**
@@ -209,6 +211,7 @@ export async function getProduct(user: User, store: string, productId: number): 
     specs: first.specs,
     productUrl,
     variants,
+    syncedAt: new Date(Math.min(...rows.map((r) => r.updatedAt.getTime()))),
   };
 }
 

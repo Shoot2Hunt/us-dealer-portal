@@ -4,16 +4,36 @@ import { notFound } from "next/navigation";
 import { cache } from "react";
 import { requireUser } from "@/lib/auth/session";
 import { getProduct } from "@/lib/catalog";
+import { refreshProduct } from "@/lib/woo/sync";
+import { isStoreKey } from "@/lib/woo/stores";
 import { sanitizeProductHtml } from "@/lib/sanitize";
 import { categoryLabel } from "../../filters";
 import { ProductView } from "./product-view";
 import { PluginEmbeds } from "@/components/plugin-slots";
 
 /** One lookup per request, shared by the metadata and the page. */
+/** Don't re-fetch the same product from its store more often than this. */
+const REFRESH_COOLDOWN_MS = 10 * 60_000;
+
+/**
+ * One lookup per request, shared by the metadata and the page. Products synced before the
+ * detail fields existed have no description or photos: fetch that one product fresh from
+ * its WooCommerce store first (bounded wait), so its page is complete without a full sync.
+ */
 const load = cache(async (store: string, id: string) => {
   const productId = Number(id);
   if (!Number.isSafeInteger(productId) || productId <= 0) return null;
-  return getProduct(await requireUser(), store, productId);
+  const user = await requireUser();
+  const product = await getProduct(user, store, productId);
+  const missingDetails = product && !product.description && !product.shortDescription && product.images.length === 0;
+  if (!missingDetails || !isStoreKey(store) || Date.now() - product.syncedAt.getTime() < REFRESH_COOLDOWN_MS) return product;
+  try {
+    await Promise.race([refreshProduct(store, productId), new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 8000))]);
+    return (await getProduct(user, store, productId)) ?? product;
+  } catch (err) {
+    console.error("[product page] refresh failed", store, productId, err);
+    return product;
+  }
 });
 
 export async function generateMetadata({ params }: PageProps<"/inventory/[store]/[id]">): Promise<Metadata> {
