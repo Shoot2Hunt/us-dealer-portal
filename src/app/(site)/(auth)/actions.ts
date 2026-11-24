@@ -4,6 +4,7 @@ import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { phoneField } from "@/lib/phone";
 import { accessRequests, db, users, type User } from "@/lib/db";
 import {
   checkPassword,
@@ -131,7 +132,7 @@ const requestSchema = z.object({
   name: z.string().trim().min(2, "Enter your name").max(100, "Name is too long (100 characters max)"),
   email: z.email("Enter a valid email address").max(200).transform((s) => s.toLowerCase()),
   company: z.string().trim().min(2, "Enter your company").max(120, "Company name is too long (120 characters max)"),
-  phone: z.string().trim().max(40, "Phone number is too long").regex(/^[\d\s()+.\-x]*$/i, "Phone numbers can only contain digits, spaces and + ( ) - .").optional(),
+  phone: phoneField,
   brandSlug: z.string().refine(isStoreKey, "Choose a brand"),
   fflNumber: z
     .string()

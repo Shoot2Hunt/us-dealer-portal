@@ -1,6 +1,7 @@
 import "server-only";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
+import { phoneField } from "@/lib/phone";
 import {
   db,
   inventory,
@@ -32,7 +33,7 @@ const addressSchema = z.object({
   city: z.string().trim().min(1).max(80),
   state: z.string().trim().regex(/^[A-Za-z]{2}$/, "Use the 2-letter state code"),
   postcode: z.string().trim().regex(/^[0-9]{5}(-[0-9]{4})?$/, "Enter a 5-digit ZIP code"),
-  phone: z.string().trim().max(40).optional(),
+  phone: phoneField,
 });
 
 const opaque = z.object({ dataDescriptor: z.string().max(100), dataValue: z.string().max(4000) });

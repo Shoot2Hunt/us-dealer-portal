@@ -4,6 +4,7 @@ import { after } from "next/server";
 import { refresh } from "next/cache";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { phoneField } from "@/lib/phone";
 import { db, users, type Address } from "@/lib/db";
 import {
   checkPassword,
@@ -42,7 +43,7 @@ function notify(scope: string, send: () => Promise<unknown>) {
 
 const profileSchema = z.object({
   name: z.string().trim().min(2, "Enter your name").max(120),
-  phone: z.string().trim().max(40).optional(),
+  phone: phoneField,
 });
 
 const addressSchema = z.object({
@@ -54,7 +55,7 @@ const addressSchema = z.object({
   city: z.string().trim().min(2, "Enter a city"),
   state: z.string().trim().min(2, "Enter a state"),
   postcode: z.string().trim().min(3, "Enter a ZIP code"),
-  phone: z.string().trim().optional(),
+  phone: phoneField,
 });
 
 const opt = (form: FormData, key: string) => String(form.get(key) ?? "").trim() || undefined;

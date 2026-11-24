@@ -2,6 +2,7 @@
 
 import { useActionState, useState, type ChangeEvent } from "react";
 import { requestAccess } from "../actions";
+import { PhoneInput } from "@/components/phone-input";
 
 const ACCEPT = "application/pdf,image/jpeg,image/png,image/webp";
 /** Matches MAX_LICENSE_FILE_BYTES in src/lib/license-docs.ts (checked again on the server). */
@@ -47,7 +48,7 @@ export function RequestAccessForm({ brands }: { brands: { value: string; label: 
         </div>
         <div>
           <label className="label" htmlFor="phone">Phone</label>
-          <input className="input" id="phone" name="phone" type="tel" maxLength={40} autoComplete="tel" />
+          <PhoneInput id="phone" name="phone" />
         </div>
       </div>
       <div>

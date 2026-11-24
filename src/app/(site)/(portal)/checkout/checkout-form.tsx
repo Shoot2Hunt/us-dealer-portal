@@ -6,6 +6,7 @@ import Link from "next/link";
 import type { Address } from "@/lib/db/schema";
 import type { PaymentSettings } from "@/sanity/content";
 import { useCart, usd } from "@/components/cart";
+import { PhoneInput } from "@/components/phone-input";
 import { loadAcceptJs, tokenize, type BankInput, type CardInput } from "@/lib/accept";
 
 type Method = "card" | "ach" | "check" | "terms";
@@ -171,7 +172,10 @@ export function CheckoutForm({
             {field("postcode", "ZIP", { required: true, pattern: "[0-9]{5}(-[0-9]{4})?", title: "5-digit ZIP code, e.g. 83814", inputMode: "numeric", maxLength: 10 })}
           </div>
           <div className="grid grid-cols-2 gap-3">
-            {field("phone", "Phone")}
+            <div>
+              <label className="label" htmlFor="ship-phone">Phone</label>
+              <PhoneInput id="ship-phone" value={address.phone ?? ""} onChange={(phone) => setAddress((a) => ({ ...a, phone }))} autoComplete="shipping tel" />
+            </div>
             <div>
               <label className="label">PO number (optional)</label>
               <input className="input" value={poNumber} onChange={(e) => setPoNumber(e.target.value)} />

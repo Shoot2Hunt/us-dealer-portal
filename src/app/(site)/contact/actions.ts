@@ -3,6 +3,7 @@
 import { headers } from "next/headers";
 import { sign, stampAge } from "./stamp";
 import { z } from "zod";
+import { phoneField } from "@/lib/phone";
 import { getCurrentUser } from "@/lib/auth/session";
 import { CONTACT_TOPICS } from "@/lib/contact";
 import { appUrl, sendEmail } from "@/lib/email";
@@ -23,7 +24,7 @@ const schema = z.object({
   name: z.string().trim().min(2, "Enter your name").max(100),
   email: z.email("Enter a valid email address").max(200).transform((s) => s.toLowerCase()),
   company: z.string().trim().max(120).optional(),
-  phone: z.string().trim().max(40).optional(),
+  phone: phoneField,
   topic: z.enum(CONTACT_TOPICS.map((t) => t.value) as [string, ...string[]]),
   message: z.string().trim().min(10, "Tell us a little more (at least 10 characters)").max(5000, "Keep it under 5,000 characters"),
 });

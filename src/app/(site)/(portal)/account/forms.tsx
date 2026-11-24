@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 import type { Address } from "@/lib/db/schema";
+import { PhoneInput } from "@/components/phone-input";
 import {
   beginTwoFactorSetup,
   cancelTwoFactorSetup,
@@ -52,7 +53,7 @@ export function ProfileForm({ name, phone, address }: { name: string; phone: str
         </div>
         <div>
           <label className="label" htmlFor="phone">Phone</label>
-          <input className="input" id="phone" name="phone" defaultValue={phone} autoComplete="tel" />
+          <PhoneInput id="phone" name="phone" defaultValue={phone} />
         </div>
       </div>
       {address !== undefined && (
@@ -63,7 +64,11 @@ export function ProfileForm({ name, phone, address }: { name: string; phone: str
             {ADDRESS_FIELDS.map(([key, label, autoComplete]) => (
               <div key={key} className={key === "address1" ? "sm:col-span-2" : ""}>
                 <label className="label" htmlFor={`ship_${key}`}>{label}</label>
-                <input className="input" id={`ship_${key}`} name={`ship_${key}`} defaultValue={address?.[key] ?? ""} autoComplete={`shipping ${autoComplete}`} />
+                {key === "phone" ? (
+                  <PhoneInput id="ship_phone" name="ship_phone" defaultValue={address?.phone ?? ""} autoComplete="shipping tel" />
+                ) : (
+                  <input className="input" id={`ship_${key}`} name={`ship_${key}`} defaultValue={address?.[key] ?? ""} autoComplete={`shipping ${autoComplete}`} />
+                )}
               </div>
             ))}
           </div>

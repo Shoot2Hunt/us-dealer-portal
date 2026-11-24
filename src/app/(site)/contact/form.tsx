@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import { CONTACT_TOPICS } from "@/lib/contact";
 import { sendContactMessage } from "./actions";
+import { PhoneInput } from "@/components/phone-input";
 
 type Prefill = { name?: string; email?: string; company?: string; phone?: string };
 
@@ -46,7 +47,7 @@ export function ContactForm({ stamp, prefill }: { stamp: string; prefill: Prefil
         </div>
         <div>
           <label className="label" htmlFor="phone">Phone <span className="font-normal text-muted">(optional)</span></label>
-          <input className="input" id="phone" name="phone" type="tel" maxLength={40} autoComplete="tel" defaultValue={prefill.phone} />
+          <PhoneInput id="phone" name="phone" defaultValue={prefill.phone} />
         </div>
       </div>
       <div>
