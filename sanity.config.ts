@@ -22,6 +22,10 @@ import { PORTAL_CREATED, schemaTypes, SINGLETONS } from "./src/sanity/schemaType
 import { statisticsTool } from "./src/sanity/tools/statistics";
 import { QUICK_ACTION_RULES, quickHeaderActions } from "./src/sanity/components/document-actions";
 import { DocumentListPane, type DocumentListOptions } from "./src/sanity/components/document-list-pane";
+import { parseNewOverrideId, ProductsPane } from "./src/sanity/components/products-pane";
+import { PackageIcon } from "@sanity/icons/Package";
+
+const PRODUCT_SETTINGS_TEMPLATE = "productOverride-for-product";
 
 for (const t of SINGLETONS) QUICK_ACTION_RULES.noActions.add(t);
 for (const t of PORTAL_CREATED) QUICK_ACTION_RULES.noDuplicate.add(t);
@@ -76,9 +80,41 @@ export default defineConfig({
   schema: {
     types: schemaTypes,
     // Settings are single documents and contact messages come from the portal: hide both from "create new".
-    templates: (templates) => templates.filter(({ schemaType }) => !SINGLETONS.includes(schemaType) && !PORTAL_CREATED.includes(schemaType)),
+    templates: (templates) => [
+      ...templates.filter(({ schemaType }) => !SINGLETONS.includes(schemaType) && !PORTAL_CREATED.includes(schemaType)),
+      {
+        // Used when a product is opened from Catalog → Products and has no settings yet.
+        id: PRODUCT_SETTINGS_TEMPLATE,
+        title: "Product settings for a product",
+        schemaType: "productOverride",
+        parameters: [
+          { name: "store", type: "string" },
+          { name: "sku", type: "string" },
+        ],
+        value: async (
+          params: { store: string; sku: string },
+          { getClient }: { getClient: (o: { apiVersion: string }) => { fetch: <T>(query: string, params?: Record<string, unknown>) => Promise<T> } },
+        ) => {
+          const client = getClient({ apiVersion });
+          const brandId = await client.fetch<string | null>(`*[_type == "brand" && storeKey == $k][0]._id`, { k: params.store });
+          // The product's name, as a label, from the portal's synced catalog.
+          let label: string | undefined;
+          try {
+            const res = await fetch(`/api/admin/products?${new URLSearchParams({ store: params.store, sku: params.sku })}`, { credentials: "same-origin" });
+            if (res.ok) label = ((await res.json()) as { products: { name: string }[] }).products[0]?.name;
+          } catch {}
+          return {
+            sku: params.sku,
+            ...(label ? { label } : {}),
+            ...(brandId ? { brand: { _type: "reference", _ref: brandId.replace(/^drafts\./, "") } } : {}),
+          };
+        },
+      },
+    ],
   },
   document: {
+    // The product template needs a product; it's only used from Catalog → Products.
+    newDocumentOptions: (prev) => prev.filter((t) => t.templateId !== PRODUCT_SETTINGS_TEMPLATE),
     // Delete and Duplicate live in the document header, next to the close button
     // (see quickHeaderActions), so they're removed from the "⋯" menu at the bottom.
     actions: (actions, { schemaType }) => {
@@ -105,6 +141,22 @@ export default defineConfig({
             inbox(S, "All messages", null, InboxIcon),
 
             S.divider().title("Catalog"),
+            S.listItem()
+              .id("products")
+              .title("Products")
+              .icon(PackageIcon)
+              .child(
+                S.component(ProductsPane)
+                  .id("products")
+                  .title("Products")
+                  // An existing settings document opens as-is; a product without one opens a
+                  // new document pre-filled with its SKU, brand and name.
+                  .child((id: string) => {
+                    const doc = S.document().documentId(id).schemaType("productOverride");
+                    const product = parseNewOverrideId(id);
+                    return product ? doc.initialValueTemplate(PRODUCT_SETTINGS_TEMPLATE, product) : doc;
+                  }),
+              ),
             docList(S, "brand", "Brands", { type: "brand" }),
             docList(S, "productOverride", "Product settings", { type: "productOverride" }, ControlsIcon),
 
