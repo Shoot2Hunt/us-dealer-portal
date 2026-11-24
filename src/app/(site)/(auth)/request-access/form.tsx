@@ -6,7 +6,7 @@ import { PhoneInput } from "@/components/phone-input";
 
 const ACCEPT = "application/pdf,image/jpeg,image/png,image/webp";
 /** Matches MAX_LICENSE_FILE_BYTES in src/lib/license-docs.ts (checked again on the server). */
-const MAX_FILE_BYTES = 2 * 1024 * 1024;
+const MAX_FILE_BYTES = 2 * 2048 * 2048;
 
 export function RequestAccessForm({ brands }: { brands: { value: string; label: string }[] }) {
   const [state, action, pending] = useActionState(requestAccess, undefined);
@@ -16,7 +16,7 @@ export function RequestAccessForm({ brands }: { brands: { value: string; label: 
     const file = e.target.files?.[0];
     if (file && file.size > MAX_FILE_BYTES) {
       e.target.value = "";
-      setFileError(`"${file.name}" is larger than 2MB. Please choose a smaller file or a lower-resolution scan.`);
+      setFileError(`"${file.name}" is larger than 3MB. Please choose a smaller file or a lower-resolution scan.`);
     } else {
       setFileError(null);
     }
