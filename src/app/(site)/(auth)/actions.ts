@@ -145,13 +145,19 @@ const requestSchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Enter the FFL expiry as a date")
     .refine((d) => !Number.isNaN(Date.parse(d)), "Enter a real date for the FFL expiry")
     .optional(),
-  // SOT is optional: number (usually the EIN it's registered under), expiry and a copy.
-  sotNumber: z.string().trim().max(40, "That SOT number is too long").optional(),
+  // Every dealer needs a current SOT: number (usually the EIN it's registered under) and expiry.
+  sotNumber: z
+    .string()
+    .trim()
+    .min(5, "Enter your SOT number (EIN)")
+    .max(40, "That SOT number is too long")
+    .regex(/^[A-Za-z0-9\-\s]+$/, "SOT numbers can only contain letters, numbers and dashes"),
   sotExpires: z
     .string()
+    .min(1, "Enter the date your SOT expires")
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Enter the SOT expiry as a date")
     .refine((d) => !Number.isNaN(Date.parse(d)), "Enter a real date for the SOT expiry")
-    .optional(),
+    .refine((d) => d >= new Date().toISOString().slice(0, 10), "That SOT has expired. Renew it before requesting access."),
   message: z.string().trim().max(2000).optional(),
 });
 
@@ -164,13 +170,12 @@ export async function requestAccess(_: FormState, form: FormData): Promise<FormS
     brandSlug: form.get("brandSlug"),
     fflNumber: form.get("fflNumber"),
     fflExpires: form.get("fflExpires") || undefined,
-    sotNumber: form.get("sotNumber") || undefined,
-    sotExpires: form.get("sotExpires") || undefined,
+    sotNumber: form.get("sotNumber") ?? "",
+    sotExpires: form.get("sotExpires") ?? "",
     message: form.get("message") || undefined,
   });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Check the form" };
-  const sotFile = form.get("sotFile");
-  const r = { ...parsed.data, hasSot: Boolean(parsed.data.sotNumber || parsed.data.sotExpires || (sotFile instanceof File && sotFile.size > 0)) };
+  const r = { ...parsed.data, hasSot: true };
   const wantsCopy = form.get("sendCopy") === "on";
 
   try {

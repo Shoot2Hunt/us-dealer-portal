@@ -77,15 +77,15 @@ export function RequestAccessForm({ brands }: { brands: { value: string; label: 
         </div>
       </section>
       <section className="space-y-3 border-t border-line pt-4">
-        <h2 className="text-sm font-semibold">SOT <span className="font-normal text-muted">(only if you have one)</span></h2>
+        <h2 className="text-sm font-semibold">SOT</h2>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="label" htmlFor="sotNumber">SOT number / EIN</label>
-            <input className="input" id="sotNumber" name="sotNumber" maxLength={40} pattern="[A-Za-z0-9 -]+" title="Letters, numbers and dashes" />
+            <input className="input" id="sotNumber" name="sotNumber" required minLength={5} maxLength={40} pattern="[A-Za-z0-9 -]+" title="Letters, numbers and dashes" />
           </div>
           <div>
             <label className="label" htmlFor="sotExpires">SOT expires</label>
-            <input className="input" id="sotExpires" name="sotExpires" type="date" />
+            <input className="input" id="sotExpires" name="sotExpires" type="date" required min={new Date().toISOString().slice(0, 10)} />
           </div>
         </div>
         <div>
