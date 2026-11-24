@@ -39,6 +39,7 @@ import { reportError } from "@/lib/errors";
 import { getBrands } from "@/sanity/content";
 import { isStoreKey, storeName } from "@/lib/woo/stores";
 import { claimLicenseUploads, findUnclaimedUploads } from "@/lib/license-docs";
+import { endRequestAccessSession, uploadTokenHash } from "@/lib/upload-session";
 
 export type FormState = { error?: string; ok?: boolean; notice?: string } | undefined;
 
@@ -185,11 +186,12 @@ export async function requestAccess(_: FormState, form: FormData): Promise<FormS
 
     // FFL and SOT copies (both required) were uploaded one at a time as they were picked
     // (/api/license-upload, to stay under Vercel's request size limit). The form sends their ids.
-    const files = await findUnclaimedUploads({ ffl: String(form.get("fflUploadId") ?? ""), sot: String(form.get("sotUploadId") ?? "") });
+    const files = await findUnclaimedUploads({ ffl: String(form.get("fflUploadId") ?? ""), sot: String(form.get("sotUploadId") ?? "") }, await uploadTokenHash());
     if (typeof files === "string") return { error: files };
 
     const [created] = await db().insert(accessRequests).values({ ...r, fflExpires: r.fflExpires || null, sotNumber: r.sotNumber || null, sotExpires: r.sotExpires || null }).returning({ id: accessRequests.id });
     await claimLicenseUploads(created.id, files.map((f) => f.id));
+    await endRequestAccessSession();
 
     // The request is saved. From here on, email problems are logged, not shown as a failed request.
     const brand = (await getBrands()).find((b) => b.storeKey === r.brandSlug);

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { readLicenseFile, saveUnclaimedLicenseFile } from "@/lib/license-docs";
 import { clientKey, rateLimit, tooManyMessage } from "@/lib/rate-limit";
+import { uploadTokenHash } from "@/lib/upload-session";
 
 /**
  * One FFL or SOT copy from the request-access form, uploaded as soon as it's picked.
@@ -19,7 +20,8 @@ export async function POST(req: NextRequest) {
   if (!file) return NextResponse.json({ ok: false, error: "Choose a file to upload." }, { status: 400 });
   if (typeof file === "string") return NextResponse.json({ ok: false, error: file }, { status: 422 });
   try {
-    const id = await saveUnclaimedLicenseFile(file);
+    // Tagged with this browser's private cookie: no other browser can attach it to a request.
+    const id = await saveUnclaimedLicenseFile(file, await uploadTokenHash(true));
     return NextResponse.json({ ok: true, id, fileName: file.fileName, size: file.size });
   } catch (err) {
     console.error("[license-upload]", err);

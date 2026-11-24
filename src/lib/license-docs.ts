@@ -64,12 +64,12 @@ export async function readLicenseFile(value: FormDataEntryValue | null, kind: Li
  * Save a copy uploaded from the request-access form before the request exists. It belongs
  * to no one until claimLicenseUploads attaches it; unclaimed copies are deleted after a day.
  */
-export async function saveUnclaimedLicenseFile(file: ValidatedLicenseFile): Promise<string> {
+export async function saveUnclaimedLicenseFile(file: ValidatedLicenseFile, uploadTokenHash: string): Promise<string> {
   const cutoff = new Date(Date.now() - UNCLAIMED_UPLOAD_HOURS * 3600_000);
   await db()
     .delete(licenseDocuments)
     .where(and(isNull(licenseDocuments.accessRequestId), isNull(licenseDocuments.userId), lt(licenseDocuments.createdAt, cutoff)));
-  const [row] = await db().insert(licenseDocuments).values(file).returning({ id: licenseDocuments.id });
+  const [row] = await db().insert(licenseDocuments).values({ ...file, uploadTokenHash }).returning({ id: licenseDocuments.id });
   return row.id;
 }
 
@@ -79,14 +79,15 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * Check the uploaded copies named in a request: each must exist, be the right kind, be
  * recent and not already belong to a request or dealer. Returns their names, or an error.
  */
-export async function findUnclaimedUploads(ids: Record<LicenseDocKind, string>): Promise<{ kind: LicenseDocKind; fileName: string; id: string }[] | string> {
+export async function findUnclaimedUploads(ids: Record<LicenseDocKind, string>, uploadTokenHash: string | null): Promise<{ kind: LicenseDocKind; fileName: string; id: string }[] | string> {
   const wanted = Object.entries(ids) as [LicenseDocKind, string][];
   for (const [kind, id] of wanted) if (!UUID.test(id)) return `Upload a copy of your ${LICENSE_DOC_LABEL[kind]} (PDF, JPG, PNG or WebP, up to 4MB).`;
+  if (!uploadTokenHash) return "Your uploads have expired (your browser session ended). Please upload the copies again.";
   const cutoff = new Date(Date.now() - UNCLAIMED_UPLOAD_HOURS * 3600_000);
   const rows = await db()
     .select({ id: licenseDocuments.id, kind: licenseDocuments.kind, fileName: licenseDocuments.fileName })
     .from(licenseDocuments)
-    .where(and(inArray(licenseDocuments.id, wanted.map(([, id]) => id)), isNull(licenseDocuments.accessRequestId), isNull(licenseDocuments.userId), gt(licenseDocuments.createdAt, cutoff)));
+    .where(and(inArray(licenseDocuments.id, wanted.map(([, id]) => id)), isNull(licenseDocuments.accessRequestId), isNull(licenseDocuments.userId), gt(licenseDocuments.createdAt, cutoff), eq(licenseDocuments.uploadTokenHash, uploadTokenHash)));
   for (const [kind, id] of wanted) {
     if (!rows.some((r) => r.id === id && r.kind === kind)) return `Your ${LICENSE_DOC_LABEL[kind]} copy has expired or is missing. Please upload it again.`;
   }
@@ -98,7 +99,7 @@ export async function claimLicenseUploads(accessRequestId: string, ids: string[]
   if (!ids.length) return;
   await db()
     .update(licenseDocuments)
-    .set({ accessRequestId })
+    .set({ accessRequestId, uploadTokenHash: null })
     .where(and(inArray(licenseDocuments.id, ids), isNull(licenseDocuments.accessRequestId), isNull(licenseDocuments.userId)));
 }
 

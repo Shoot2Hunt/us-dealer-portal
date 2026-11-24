@@ -5,6 +5,7 @@ import { requestAccess } from "../actions";
 import { PhoneInput } from "@/components/phone-input";
 import { FileField, type UploadedFile } from "@/components/file-field";
 import { EXPIRY_LIMITS, expiryProblem, type LicenseKind } from "@/lib/license-dates";
+import { writeDraftCookie, type Draft, type DraftFields, type DraftFiles } from "./draft";
 
 const ACCEPT = "application/pdf,image/jpeg,image/png,image/webp";
 /**
@@ -13,65 +14,21 @@ const ACCEPT = "application/pdf,image/jpeg,image/png,image/webp";
  */
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
 
-type Fields = {
-  brandSlug: string;
-  name: string;
-  phone: string;
-  email: string;
-  company: string;
-  fflNumber: string;
-  fflExpires: string;
-  sotNumber: string;
-  sotExpires: string;
-  sendCopy: boolean;
-};
-const EMPTY: Fields = { brandSlug: "", name: "", phone: "", email: "", company: "", fflNumber: "", fflExpires: "", sotNumber: "", sotExpires: "", sendCopy: true };
-type Files = { fflFile: UploadedFile | null; sotFile: UploadedFile | null };
+type Fields = DraftFields;
+type Files = DraftFiles;
 
-// --- Draft: survives a refresh, gone when the tab is closed or the request is sent. ---
-// Files are already uploaded by then, so the draft only needs their ids and names.
-const DRAFT_KEY = "request-access-draft";
-type Draft = Partial<Fields> & { files?: Partial<Files> };
-const clearDraft = () => {
-  try {
-    sessionStorage.removeItem(DRAFT_KEY);
-  } catch {}
-};
-
-export function RequestAccessForm({ brands }: { brands: { value: string; label: string }[] }) {
+export function RequestAccessForm({ brands, initialDraft }: { brands: { value: string; label: string }[]; initialDraft: Draft }) {
   const [state, dispatch, pending] = useActionState(requestAccess, undefined);
-  const [fields, setFields] = useState<Fields>(EMPTY);
-  const [files, setFiles] = useState<Files>({ fflFile: null, sotFile: null });
+  // Starts from the draft cookie the server read, so a refresh keeps everything (draft.ts).
+  const [fields, setFields] = useState<Fields>(initialDraft.fields);
+  const [files, setFiles] = useState<Files>(initialDraft.files);
   const [fileErrors, setFileErrors] = useState<Partial<Record<keyof Files, string>>>({});
   const [touched, setTouched] = useState<Partial<Record<LicenseKind, boolean>>>({});
-  const restored = useRef(false);
 
-  // Restore the draft after a refresh. Runs once, in the browser only.
+  // Save as they type and upload; clear once sent (the server clears it too).
   useEffect(() => {
-    let draft: Draft | null = null;
-    try {
-      draft = JSON.parse(sessionStorage.getItem(DRAFT_KEY) ?? "null");
-    } catch {}
-    if (draft) {
-      const { files: savedFiles, ...savedFields } = draft;
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- sessionStorage only exists in the browser, after hydration
-      setFields((f) => ({ ...f, ...savedFields }));
-      setFiles((f) => ({ fflFile: f.fflFile ?? savedFiles?.fflFile ?? null, sotFile: f.sotFile ?? savedFiles?.sotFile ?? null }));
-    }
-    restored.current = true;
-  }, []);
-
-  // Save as they type and upload.
-  useEffect(() => {
-    if (!restored.current) return;
-    try {
-      sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ ...fields, files } satisfies Draft));
-    } catch {}
-  }, [fields, files]);
-
-  useEffect(() => {
-    if (state?.ok) clearDraft();
-  }, [state]);
+    writeDraftCookie(state?.ok ? null : { fields, files });
+  }, [fields, files, state]);
 
   const set = <K extends keyof Fields>(key: K, value: Fields[K]) => setFields((f) => ({ ...f, [key]: value }));
   const setFile = (key: keyof Files) => (file: UploadedFile | null) => {

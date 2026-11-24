@@ -146,6 +146,11 @@ export const licenseDocuments = pgTable("license_documents", {
   size: integer("size").notNull(),
   /** File bytes, base64-encoded. Never select this in list queries. */
   data: text("data").notNull(),
+  /**
+   * For copies uploaded before an access request exists: SHA-256 of the uploading browser's
+   * private cookie, so only that browser can attach the file to its request.
+   */
+  uploadTokenHash: text("upload_token_hash"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
