@@ -89,12 +89,12 @@ export function RequestAccessForm({ brands }: { brands: { value: string; label: 
           </div>
         </div>
         <div>
-          <label className="label" htmlFor="sotFile">SOT copy <span className="font-normal text-muted">(optional)</span></label>
-          <input className="input" id="sotFile" name="sotFile" type="file" accept={ACCEPT} onChange={checkSize} />
+          <label className="label" htmlFor="sotFile">SOT copy</label>
+          <input className="input" id="sotFile" name="sotFile" type="file" accept={ACCEPT} onChange={checkSize} required/>
         </div>
       </section>
       <p className="text-xs text-muted">
-        Copies speed up approval. PDF, JPG, PNG or WebP, up to 2MB each. Only the brand&apos;s admins and you can see them.
+          PDF, JPG, PNG or WebP, up to 2MB each.
       </p>
       {fileError && <p className="text-sm text-red-700">{fileError}</p>}
       <div>
