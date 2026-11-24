@@ -98,7 +98,10 @@ export type Brand = {
 
 export type ProductOverride = {
   storeKey: string;
-  sku: string;
+  /** WooCommerce product + variation (0 = simple product). Preferred match; SKU is a fallback. */
+  productId?: number;
+  variationId?: number;
+  sku?: string;
   hidden?: boolean;
   dealerPrice?: number;
   minQuantity?: number;
@@ -143,7 +146,7 @@ export async function getBrands(): Promise<Brand[]> {
 export async function getProductOverrides(): Promise<ProductOverride[]> {
   return (
     (await q<ProductOverride[]>(
-      `*[_type == "productOverride"]{"storeKey": brand->storeKey, sku, hidden, dealerPrice, saleStarts, saleEnds, minQuantity, featured, dealerNote}`,
+      `*[_type == "productOverride"]{"storeKey": brand->storeKey, productId, variationId, sku, hidden, dealerPrice, saleStarts, saleEnds, minQuantity, featured, dealerNote}`,
     )) ?? []
   );
 }

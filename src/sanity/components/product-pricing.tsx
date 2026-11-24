@@ -62,10 +62,19 @@ export function SkuInput(props: StringInputProps) {
   }, [query]);
 
   async function pick(p: AdminProduct) {
-    if (!p.sku) return;
-    onChange(set(p.sku));
+    // Link by WooCommerce ids (unique, always present). The SKU is filled in when there is one.
+    if (p.sku) onChange(set(p.sku));
     const brandId = await client.fetch<string | null>(`*[_type == "brand" && storeKey == $k][0]._id`, { k: p.store });
-    patch.execute([{ set: { ...(label ? {} : { label: p.name }), ...(brandId ? { brand: { _type: "reference", _ref: brandId.replace(/^drafts\./, "") } } : {}) } }]);
+    patch.execute([
+      {
+        set: {
+          productId: p.productId,
+          variationId: p.variationId,
+          ...(label ? {} : { label: p.name }),
+          ...(brandId ? { brand: { _type: "reference", _ref: brandId.replace(/^drafts\./, "") } } : {}),
+        },
+      },
+    ]);
     setQuery("");
     setResults(null);
   }
@@ -89,7 +98,7 @@ export function SkuInput(props: StringInputProps) {
           ) : (
             <Stack>
               {shown.map((p) => (
-                <Card key={`${p.store}:${p.sku}:${p.name}`} as="button" padding={2} onClick={() => pick(p)} disabled={!p.sku} style={{ textAlign: "left", cursor: p.sku ? "pointer" : "not-allowed" }}>
+                <Card key={`${p.store}:${p.productId}:${p.variationId}`} as="button" padding={2} onClick={() => pick(p)} style={{ textAlign: "left", cursor: "pointer", width: "100%" }}>
                   <Flex gap={3} align="center">
                     {p.imageUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
@@ -101,7 +110,7 @@ export function SkuInput(props: StringInputProps) {
                       <Text size={1} weight="semibold" textOverflow="ellipsis">{p.name}</Text>
                       <Box marginTop={1}>
                         <Text size={0} muted>
-                          {p.brandName} · {p.sku ?? "no SKU (can't be set)"} · {p.retailPrice !== null ? `retail ${usd(p.retailPrice)}` : "no retail price"}
+                          {p.brandName} · {p.sku ?? "no SKU"} · {p.retailPrice !== null ? `retail ${usd(p.retailPrice)}` : "no retail price"}
                         </Text>
                       </Box>
                     </Box>
@@ -123,31 +132,40 @@ export function SkuInput(props: StringInputProps) {
 export function DealerPriceInput(props: NumberInputProps) {
   const { value, renderDefault } = props;
   const sku = useFormValue(["sku"]) as string | undefined;
+  const productId = useFormValue(["productId"]) as number | undefined;
+  const variationId = useFormValue(["variationId"]) as number | undefined;
   const brandRef = (useFormValue(["brand"]) as { _ref?: string } | undefined)?._ref;
   const saleStarts = useFormValue(["saleStarts"]) as string | undefined;
   const saleEnds = useFormValue(["saleEnds"]) as string | undefined;
   const client = useClient({ apiVersion: API_VERSION });
   const [product, setProduct] = useState<AdminProduct | null | "signin" | "loading">(null);
+  const linked = typeof productId === "number" || Boolean(sku);
 
   useEffect(() => {
-    if (!sku || !brandRef) return;
+    if (!linked || !brandRef) return;
     let cancelled = false;
     (async () => {
       setProduct("loading");
       const store = await client.fetch<string | null>(`*[_id in [$id, "drafts." + $id]][0].storeKey`, { id: brandRef });
-      const r = store ? await fetchProducts({ store, sku }) : [];
+      // Linked products are found by their WooCommerce ids; older settings by SKU.
+      const query: Record<string, string> | null = store
+        ? typeof productId === "number"
+          ? { store, productId: String(productId), variationId: String(variationId ?? 0) }
+          : { store, sku: sku! }
+        : null;
+      const r = query ? await fetchProducts(query) : [];
       if (!cancelled) setProduct(r === "signin" ? "signin" : r[0] ?? null);
     })();
     return () => {
       cancelled = true;
     };
-  }, [sku, brandRef, client]);
+  }, [linked, sku, productId, variationId, brandRef, client]);
 
   let preview: React.ReactNode = null;
-  if (!sku || !brandRef) preview = <Text size={1} muted>Pick the brand and product above to preview prices.</Text>;
+  if (!linked || !brandRef) preview = <Text size={1} muted>Pick the brand and product above to preview prices.</Text>;
   else if (product === "loading") preview = <Spinner muted />;
   else if (product === "signin") preview = <SignInHint />;
-  else if (product === null) preview = <Text size={1} muted>This SKU isn&apos;t in the synced catalog yet.</Text>;
+  else if (product === null) preview = <Text size={1} muted>This product isn&apos;t in the synced catalog (it may have been removed from the store).</Text>;
   else {
     const regular = product.regularPrice;
     const { scheduled, ended } = saleWindow(saleStarts, saleEnds);

@@ -146,15 +146,23 @@ export const productOverride = defineType({
   name: "productOverride",
   title: "Product setting",
   type: "document",
-  description: "Dealer-only settings for one WooCommerce product, matched by SKU.",
+  description: "Dealer-only settings for one WooCommerce product. Open products from Catalog → Products to link them automatically.",
+  fieldsets: [{ name: "link", title: "Linked WooCommerce product", options: { collapsible: true, collapsed: true } }],
   fields: [
     defineField({ name: "brand", type: "reference", to: [{ type: "brand" }], validation: (r) => r.required() }),
+    // Set automatically when opened from Catalog → Products or picked in the finder. These
+    // ids are unique and always present, unlike SKUs (most variations have none).
+    defineField({ name: "productId", title: "WooCommerce product ID", type: "number", readOnly: true, fieldset: "link" }),
+    defineField({ name: "variationId", title: "WooCommerce variation ID (0 = simple product)", type: "number", readOnly: true, fieldset: "link" }),
     defineField({
       name: "sku",
       title: "SKU",
-      description: "Search below to fill this in from the synced catalog.",
+      description: "Search below to pick a product from the synced catalog. Not needed when the product is linked by ID above.",
       type: "string",
-      validation: (r) => r.required(),
+      validation: (r) =>
+        r.custom((sku, ctx) =>
+          sku || typeof (ctx.document as { productId?: number } | undefined)?.productId === "number" ? true : "Pick a product below (or enter its SKU)",
+        ),
       components: { input: SkuInput },
     }),
     defineField({ name: "label", title: "Label (for your reference)", type: "string" }),
@@ -189,9 +197,9 @@ export const productOverride = defineType({
     defineField({ name: "dealerNote", title: "Note shown to dealers", type: "string" }),
   ],
   preview: {
-    select: { sku: "sku", label: "label", brand: "brand.name", hidden: "hidden", price: "dealerPrice", ends: "saleEnds" },
-    prepare: ({ sku, label, brand, hidden, price, ends }) => ({
-      title: `${label || sku}${hidden ? " (hidden)" : ""}`,
+    select: { sku: "sku", label: "label", brand: "brand.name", hidden: "hidden", price: "dealerPrice", ends: "saleEnds", productId: "productId" },
+    prepare: ({ sku, label, brand, hidden, price, ends, productId }) => ({
+      title: `${label || sku || (productId ? `Product #${productId}` : "Product")}${hidden ? " (hidden)" : ""}`,
       subtitle: [brand, sku, typeof price === "number" ? "$" + price.toFixed(2) : null, ends ? `until ${new Date(ends).toLocaleDateString()}` : null].filter(Boolean).join(" · "),
     }),
   },

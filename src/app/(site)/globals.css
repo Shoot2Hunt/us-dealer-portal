@@ -74,6 +74,26 @@ body {
   ::selection {
     background: color-mix(in oklab, var(--color-accent) 25%, transparent);
   }
+  /* Tailwind v4 resets buttons to cursor: default. Everything clickable gets the hand
+     cursor; disabled controls get "not-allowed". */
+  a[href],
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  select:not(:disabled),
+  summary,
+  label:has(> input:not(:disabled)),
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled),
+  input[type="file"]:not(:disabled),
+  input[type="submit"]:not(:disabled) {
+    cursor: pointer;
+  }
+  button:disabled,
+  select:disabled,
+  input:disabled,
+  textarea:disabled {
+    cursor: not-allowed;
+  }
 }
 
 @layer components {

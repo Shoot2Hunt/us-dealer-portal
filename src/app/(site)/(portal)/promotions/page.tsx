@@ -95,7 +95,9 @@ function PromoCard({ promo: p, timingLabel, urgent, index, upcoming }: { promo: 
   return (
     <article
       style={{ animationDelay: `${Math.min(index, 6) * 70}ms` }}
-      className={`group flex animate-fade-up flex-col overflow-hidden rounded-xl border border-line bg-white shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-lg ${upcoming ? "opacity-80" : ""}`}
+      // Running promotions: the whole card is clickable (the "Shop" link stretches over it), so
+      // it lifts on hover. Upcoming ones aren't clickable, so they don't react to hover.
+      className={`relative flex animate-fade-up flex-col overflow-hidden rounded-xl border border-line bg-white shadow-sm ${upcoming ? "opacity-80" : "group cursor-pointer transition duration-200 hover:-translate-y-1 hover:shadow-lg"}`}
     >
       <div className="relative aspect-[2.4/1] overflow-hidden bg-linear-to-br from-ink via-ink-soft to-header-end">
         {p.imageUrl ? (
@@ -126,7 +128,8 @@ function PromoCard({ promo: p, timingLabel, urgent, index, upcoming }: { promo: 
           </div>
         )}
         {p.code && (
-          <div className="rounded-lg bg-panel p-3 text-sm">
+          // Above the stretched card link, so the copy button stays clickable on its own.
+          <div className="relative z-10 cursor-auto rounded-lg bg-panel p-3 text-sm">
             <p className="mb-2 text-muted">
               Use code at checkout{p.code.description ? `: ${p.code.description}` : ` for ${p.code.type === "amount" ? `$${p.code.value} off` : `${p.code.value}% off`}`}
             </p>
@@ -134,7 +137,7 @@ function PromoCard({ promo: p, timingLabel, urgent, index, upcoming }: { promo: 
           </div>
         )}
         {!upcoming && (
-          <Link href={shopLink(p)} className="btn-accent mt-auto self-start">
+          <Link href={shopLink(p)} className="btn-accent mt-auto self-start after:absolute after:inset-0 after:content-['']">
             Shop the {p.percentOff > 0 ? "sale" : "promotion"} <span className="icon-[lucide--arrow-right] h-4 w-4" aria-hidden="true" />
           </Link>
         )}

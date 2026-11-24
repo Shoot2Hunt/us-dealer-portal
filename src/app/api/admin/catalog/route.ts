@@ -57,10 +57,15 @@ export async function POST(req: NextRequest) {
   if (f.stock === "backorder") where.push(eq(inventory.stockStatus, "onbackorder"));
   if (f.stock === "in") where.push(ne(inventory.stockStatus, "outofstock"));
   if (f.keys) {
-    // Only products whose "store:sku" is in the list (an empty list matches nothing).
-    const pairs = f.keys.map((k) => k.split(":")).filter((p) => p.length >= 2);
-    if (!pairs.length) return NextResponse.json({ rows: [], total: 0, page: 1, pages: 1, stores: [] } satisfies CatalogPage);
-    where.push(isNotNull(inventory.sku), inArray(sql`${inventory.store} || ':' || ${inventory.sku}`, f.keys));
+    // Only these products. Keys are "id:<store>:<productId>:<variationId>" or, for settings
+    // made before products were linked by id, "sku:<store>:<sku lower-cased>".
+    const idKeys = f.keys.filter((k) => k.startsWith("id:"));
+    const skuKeys = f.keys.filter((k) => k.startsWith("sku:"));
+    if (!idKeys.length && !skuKeys.length) return NextResponse.json({ rows: [], total: 0, page: 1, pages: 1, stores: [] } satisfies CatalogPage);
+    const anyOf: SQL[] = [];
+    if (idKeys.length) anyOf.push(inArray(sql`'id:' || ${inventory.store} || ':' || ${inventory.productId} || ':' || ${inventory.variationId}`, idKeys));
+    if (skuKeys.length) anyOf.push(and(isNotNull(inventory.sku), inArray(sql`'sku:' || ${inventory.store} || ':' || lower(trim(${inventory.sku}))`, skuKeys))!);
+    where.push(or(...anyOf)!);
   }
   const cond = where.length ? and(...where) : undefined;
 

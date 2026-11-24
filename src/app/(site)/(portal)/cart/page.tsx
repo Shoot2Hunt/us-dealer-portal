@@ -23,7 +23,7 @@ export default function CartPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Cart</h1>
         {cart.priceNotice && <p className="rounded-md bg-accent/5 px-3 py-2 text-sm">{cart.priceNotice}</p>}
         {[...byBrand].map(([brand, lines]) => (
-          <section key={brand} className="card hover:shadow-md">
+          <section key={brand} className="card">
             <h2 className="mb-3 flex items-center gap-2 font-semibold"><span className="icon-[lucide--tag] h-4 w-4 text-accent" aria-hidden="true" />{brand}</h2>
             <ul className="divide-y divide-line">
               {lines.map((l) => (

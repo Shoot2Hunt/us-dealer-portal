@@ -7,6 +7,8 @@ import { storeName } from "@/lib/woo/stores";
 
 export type AdminProduct = {
   store: string;
+  productId: number;
+  variationId: number;
   brandName: string;
   sku: string | null;
   name: string;
@@ -33,7 +35,12 @@ export async function GET(req: NextRequest) {
   const store = sp.get("store");
   const sku = sp.get("sku");
   let where;
-  if (store && sku) where = and(eq(inventory.store, store), eq(inventory.sku, sku));
+  const productId = Number(sp.get("productId"));
+  const variationId = Number(sp.get("variationId") ?? 0);
+  const exact = Boolean(store && ((Number.isSafeInteger(productId) && productId > 0) || sku));
+  if (store && Number.isSafeInteger(productId) && productId > 0 && Number.isSafeInteger(variationId)) {
+    where = and(eq(inventory.store, store), eq(inventory.productId, productId), eq(inventory.variationId, variationId));
+  } else if (store && sku) where = and(eq(inventory.store, store), eq(inventory.sku, sku));
   else if (q.length >= 2) {
     const like = `%${q.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
     where = or(ilike(inventory.name, like), ilike(inventory.sku, like));
@@ -41,10 +48,10 @@ export async function GET(req: NextRequest) {
 
   const [rows, brands] = await Promise.all([
     db()
-      .select({ store: inventory.store, sku: inventory.sku, name: inventory.name, imageUrl: inventory.imageUrl, retailPrice: inventory.retailPrice })
+      .select({ store: inventory.store, productId: inventory.productId, variationId: inventory.variationId, sku: inventory.sku, name: inventory.name, imageUrl: inventory.imageUrl, retailPrice: inventory.retailPrice })
       .from(inventory)
       .where(where)
-      .limit(store && sku ? 1 : 15),
+      .limit(exact ? 1 : 15),
     getBrands(),
   ]);
   const products: AdminProduct[] = rows.map((r) => {
@@ -54,6 +61,8 @@ export async function GET(req: NextRequest) {
     return {
       store: r.store,
       brandName: brand?.name ?? storeName(r.store),
+      productId: r.productId,
+      variationId: r.variationId,
       sku: r.sku,
       name: r.name,
       imageUrl: r.imageUrl,

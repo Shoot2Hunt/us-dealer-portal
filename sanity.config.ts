@@ -89,23 +89,27 @@ export default defineConfig({
         schemaType: "productOverride",
         parameters: [
           { name: "store", type: "string" },
-          { name: "sku", type: "string" },
+          { name: "productId", type: "string" },
+          { name: "variationId", type: "string" },
         ],
         value: async (
-          params: { store: string; sku: string },
+          params: { store: string; productId: string; variationId: string },
           { getClient }: { getClient: (o: { apiVersion: string }) => { fetch: <T>(query: string, params?: Record<string, unknown>) => Promise<T> } },
         ) => {
           const client = getClient({ apiVersion });
           const brandId = await client.fetch<string | null>(`*[_type == "brand" && storeKey == $k][0]._id`, { k: params.store });
-          // The product's name, as a label, from the portal's synced catalog.
-          let label: string | undefined;
+          // Name (as the label) and SKU, when it has one, from the portal's synced catalog.
+          let product: { name: string; sku: string | null } | undefined;
           try {
-            const res = await fetch(`/api/admin/products?${new URLSearchParams({ store: params.store, sku: params.sku })}`, { credentials: "same-origin" });
-            if (res.ok) label = ((await res.json()) as { products: { name: string }[] }).products[0]?.name;
+            const res = await fetch(`/api/admin/products?${new URLSearchParams(params)}`, { credentials: "same-origin" });
+            if (res.ok) product = ((await res.json()) as { products: { name: string; sku: string | null }[] }).products[0];
           } catch {}
           return {
-            sku: params.sku,
-            ...(label ? { label } : {}),
+            // Linked by WooCommerce ids: unique, and present even when there's no SKU.
+            productId: Number(params.productId),
+            variationId: Number(params.variationId),
+            ...(product?.sku ? { sku: product.sku } : {}),
+            ...(product?.name ? { label: product.name } : {}),
             ...(brandId ? { brand: { _type: "reference", _ref: brandId.replace(/^drafts\./, "") } } : {}),
           };
         },

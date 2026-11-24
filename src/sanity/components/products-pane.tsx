@@ -18,27 +18,23 @@ const BRANDS = [
 ];
 
 // --- IDs for Product settings that don't exist yet ---------------------------------
-// "po-<store>-<base64url(sku)>": opening one creates the settings document with the SKU
-// and brand already filled in (see the productOverride-for-product template).
+// "po-<store>-<productId>-<variationId>": WooCommerce ids are unique and every product has
+// them (most variations have no SKU). Opening one creates the settings document linked to
+// the product, with brand, SKU and name filled in (productOverride-for-product template).
 
-const b64url = (s: string) => btoa(unescape(encodeURIComponent(s))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-const unb64url = (s: string) => decodeURIComponent(escape(atob(s.replace(/-/g, "+").replace(/_/g, "/"))));
+export const newOverrideId = (store: string, productId: number, variationId: number) => `po-${store}-${productId}-${variationId}`;
 
-export const newOverrideId = (store: string, sku: string) => `po-${store}-${b64url(sku)}`;
-
-export function parseNewOverrideId(id: string): { store: string; sku: string } | null {
+export function parseNewOverrideId(id: string): { store: string; productId: string; variationId: string } | null {
   for (const b of BRANDS) {
-    const prefix = `po-${b.key}-`;
-    if (id.startsWith(prefix)) {
-      try {
-        return { store: b.key, sku: unb64url(id.slice(prefix.length)) };
-      } catch {
-        return null;
-      }
-    }
+    const m = id.match(new RegExp(`^po-${b.key}-([0-9]+)-([0-9]+)$`));
+    if (m) return { store: b.key, productId: m[1]!, variationId: m[2]! };
   }
   return null;
 }
+
+/** Same keys as src/lib/catalog.ts (overrideKey), so the portal and Studio agree. */
+const keyById = (store: string, productId: number, variationId: number) => `id:${store}:${productId}:${variationId}`;
+const keyBySku = (store: string, sku: string) => `sku:${store}:${sku.trim().toLowerCase()}`;
 
 // --- Data -------------------------------------------------------------------------
 
@@ -58,11 +54,11 @@ function useOverrides() {
 
   const load = useCallback(async () => {
     const r = await client.fetch<{
-      overrides: { _id: string; sku?: string; store?: string; hidden?: boolean; featured?: boolean; dealerPrice?: number; saleStarts?: string; saleEnds?: string }[];
+      overrides: { _id: string; productId?: number; variationId?: number; sku?: string; store?: string; hidden?: boolean; featured?: boolean; dealerPrice?: number; saleStarts?: string; saleEnds?: string }[];
       brands: number;
     }>(
       `{
-        "overrides": *[_type == "productOverride" && defined(sku)]{_id, sku, "store": brand->storeKey, hidden, featured, dealerPrice, saleStarts, saleEnds},
+        "overrides": *[_type == "productOverride"]{_id, productId, variationId, sku, "store": brand->storeKey, hidden, featured, dealerPrice, saleStarts, saleEnds},
         "brands": count(*[_type == "brand" && !(_id in path("drafts.**"))])
       }`,
       {},
@@ -70,8 +66,9 @@ function useOverrides() {
     );
     const m = new Map<string, Override>();
     for (const o of r.overrides) {
-      if (!o.store || !o.sku || o._id.startsWith("versions.")) continue;
-      const key = `${o.store}:${o.sku}`;
+      if (!o.store || o._id.startsWith("versions.")) continue;
+      const key = typeof o.productId === "number" ? keyById(o.store, o.productId, o.variationId ?? 0) : o.sku ? keyBySku(o.store, o.sku) : null;
+      if (!key) continue;
       const draft = o._id.startsWith("drafts.");
       // Prefer the draft so unpublished edits show up here too.
       if (!m.has(key) || draft) {
@@ -180,8 +177,10 @@ export function ProductsPane(props: { childItemId?: string }) {
   };
 
   return (
-    <Stack gap={3} padding={3}>
-      <style>{`.dp-row > a { display: block; color: inherit; text-decoration: none; border-radius: 4px; }`}</style>
+    <Stack gap={3} padding={3} className="products-pane">
+      <style>{`.dp-row > a { display: block; color: inherit; text-decoration: none; border-radius: 4px; cursor: pointer; }
+.dp-row > a:hover [data-ui="Card"] { background: var(--card-muted-bg-color, rgba(127,127,127,.08)); }
+.products-pane select, .products-pane button:not(:disabled) { cursor: pointer; }`}</style>
       {brandCount === 0 && (
         <Card padding={3} radius={2} tone="caution" border>
           <Stack gap={3}>
@@ -249,7 +248,12 @@ export function ProductsPane(props: { childItemId?: string }) {
           ) : (
             <Stack gap={1} style={{ opacity: state === "loading" ? 0.6 : 1 }}>
               {data.rows.map((r) => (
-                <ProductRow key={r.id} row={r} override={r.sku ? overrides?.get(`${r.store}:${r.sku}`) : undefined} selectedId={props.childItemId} />
+                <ProductRow
+                  key={r.id}
+                  row={r}
+                  override={overrides?.get(keyById(r.store, r.productId, r.variationId)) ?? (r.sku ? overrides?.get(keyBySku(r.store, r.sku)) : undefined)}
+                  selectedId={props.childItemId}
+                />
               ))}
             </Stack>
           )}
@@ -268,7 +272,8 @@ export function ProductsPane(props: { childItemId?: string }) {
 
 function ProductRow({ row, override, selectedId }: { row: CatalogRow; override?: Override; selectedId?: string }) {
   const { ChildLink } = usePaneRouter();
-  const childId = override?.id ?? (row.sku ? newOverrideId(row.store, row.sku) : null);
+  // Every product can be opened: existing settings by their id, new ones by the product's ids.
+  const childId = override?.id ?? newOverrideId(row.store, row.productId, row.variationId);
   const selected = Boolean(childId && selectedId === childId);
   const price = typeof override?.dealerPrice === "number" && saleIsCurrent(override) ? override.dealerPrice : null;
   const onSale = price !== null && row.regularPrice !== null && price < row.regularPrice;
@@ -315,7 +320,6 @@ function ProductRow({ row, override, selectedId }: { row: CatalogRow; override?:
     </Card>
   );
 
-  if (!childId) return <div title="This product has no SKU in WooCommerce, so it can't have dealer settings.">{content}</div>;
   return (
     <div className="dp-row">
       <ChildLink childId={childId}>{content}</ChildLink>

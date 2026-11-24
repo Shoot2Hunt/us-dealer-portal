@@ -137,7 +137,7 @@ export async function SiteFooter() {
                         <span className="sr-only">(opens in a new tab)</span>
                       </a>
                     ) : (
-                      <div className="group block">{tile}</div>
+                      <div className="block">{tile}</div>
                     )}
                   </li>
                 );

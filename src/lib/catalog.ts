@@ -59,7 +59,7 @@ export async function loadCatalogContext(user: User): Promise<CatalogContext> {
   ]);
   return {
     brands,
-    overrides: new Map(overrides.filter((o) => o.sku).map((o) => [`${o.storeKey}:${o.sku}`, o])),
+    overrides: overrideIndex(overrides),
     tier,
     promotions: promotions.filter((p) => p.percentOff > 0),
   };
@@ -82,7 +82,8 @@ const listColumns = Object.fromEntries(
 
 export function toCatalogItem(row: CatalogRow, user: User, ctx: CatalogContext): CatalogItem | null {
   const brand = ctx.brands.find((b) => b.storeKey === row.store);
-  const o = row.sku ? ctx.overrides.get(`${row.store}:${row.sku}`) : undefined;
+  // Match by WooCommerce product/variation id (unique, always present), then by SKU.
+  const o = ctx.overrides.get(overrideKey.byId(row.store, row.productId, row.variationId)) ?? (row.sku ? ctx.overrides.get(overrideKey.bySku(row.store, row.sku)) : undefined);
   if (o?.hidden) return null;
 
   const retail = row.retailPrice ? Number(row.retailPrice) : null;
@@ -221,4 +222,20 @@ export function shippingBlock(item: CatalogItem, state: string, ctx: CatalogCont
     }
   }
   return null;
+}
+
+/** Keys for looking up Product settings: by WooCommerce ids, or by SKU for older settings. */
+export const overrideKey = {
+  byId: (store: string, productId: number, variationId: number) => `id:${store}:${productId}:${variationId}`,
+  bySku: (store: string, sku: string) => `sku:${store}:${sku.trim().toLowerCase()}`,
+};
+
+function overrideIndex(overrides: ProductOverride[]): Map<string, ProductOverride> {
+  const m = new Map<string, ProductOverride>();
+  for (const o of overrides) {
+    if (!o.storeKey) continue;
+    if (typeof o.productId === "number") m.set(overrideKey.byId(o.storeKey, o.productId, o.variationId ?? 0), o);
+    else if (o.sku) m.set(overrideKey.bySku(o.storeKey, o.sku), o);
+  }
+  return m;
 }

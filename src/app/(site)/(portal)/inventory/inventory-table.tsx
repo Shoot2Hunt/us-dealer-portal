@@ -2,7 +2,7 @@
 
 import { useDeferredValue, useEffect, useMemo, useRef, useState, ViewTransition } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import type { CatalogItem } from "@/lib/catalog";
 import { flyToCart, useCart, usd } from "@/components/cart";
@@ -273,9 +273,17 @@ function Row({ item }: { item: CatalogItem }) {
   const [added, setAdded] = useState(false);
   const orderable = item.inStock && !item.restriction && item.dealerPrice !== null;
   const href = `/inventory/${item.store}/${item.productId}${item.variationId ? `?v=${item.variationId}` : ""}`;
+  const router = useRouter();
 
   return (
-    <tr className="border-t border-line align-middle transition-colors duration-150 hover:bg-accent-soft/40">
+    <tr
+      // The whole row opens the product, except clicks on its own controls (qty, Add, links).
+      onClick={(e) => {
+        if ((e.target as HTMLElement).closest("a, button, input, select, label, textarea")) return;
+        router.push(href);
+      }}
+      className="cursor-pointer border-t border-line align-middle transition-colors duration-150 hover:bg-accent-soft/40"
+    >
       <td className="px-3 py-2">
         <div className="flex items-center gap-3">
           <Link href={href} transitionTypes={["nav-forward"]} tabIndex={-1} aria-hidden="true" className="shrink-0">

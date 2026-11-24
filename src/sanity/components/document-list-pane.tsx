@@ -25,7 +25,8 @@ const publishedId = (id: string) => id.replace(/^drafts\./, "");
 /** Hover-to-show actions on the right of each row (and while a row has keyboard focus). */
 const STYLES = `
 .dp-row { position: relative; }
-.dp-row > a { display: block; color: inherit; text-decoration: none; border-radius: 4px; }
+.dp-row > a { display: block; color: inherit; text-decoration: none; border-radius: 4px; cursor: pointer; }
+.dp-row button:not(:disabled) { cursor: pointer; }
 .dp-row .dp-actions { position: absolute; top: 50%; right: 6px; transform: translateY(-50%); display: flex; gap: 2px;
   opacity: 0; pointer-events: none; transition: opacity 120ms ease; border-radius: 4px;
   background: var(--card-bg-color); box-shadow: 0 0 0 1px var(--card-border-color); padding: 2px; }
