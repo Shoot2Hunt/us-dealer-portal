@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { formatPhoneAsTyped, parsePhone, PHONE_EXAMPLE } from "@/lib/phone";
+import { formatPhoneAsTyped, limitPhoneInput, parsePhone, PHONE_EXAMPLE } from "@/lib/phone";
 
 type Props = {
   id?: string;
@@ -58,7 +58,9 @@ export function PhoneInput({ id, name, defaultValue = "", value, onChange, requi
         aria-describedby={touched && error ? errorId : undefined}
         className={`${className} ${touched && error ? "border-red-400 focus:border-red-500 focus:ring-red-200" : ""}`}
         onChange={(e) => {
-          const raw = e.target.value;
+          // A US number can't go past 10 digits: extra keystrokes are ignored.
+          const raw = limitPhoneInput(e.target.value);
+          if (raw === null) return;
           // Format while typing forward; leave deletions alone so backspace isn't fought.
           set(raw.length > current.length ? formatPhoneAsTyped(raw) : raw);
         }}

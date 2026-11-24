@@ -5,6 +5,8 @@ import { readSession, SESSION_COOKIE } from "@/lib/auth/token";
 const PUBLIC = [
   "/login", "/request-access", "/forgot-password", "/set-password", "/legal", "/contact", "/studio",
   "/api/webhooks", "/api/cron", "/api/revalidate", "/api/track",
+  // FFL/SOT copies from the (signed-out) request-access form. Rate-limited per network.
+  "/api/license-upload",
   // Checks the portal session itself and answers 401/403, so Studio can show a sign-in hint.
   "/api/admin/stats",
 ];

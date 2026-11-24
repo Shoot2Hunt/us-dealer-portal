@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { phoneField } from "@/lib/phone";
+import { expiryProblem, type LicenseKind } from "@/lib/license-dates";
 import { accessRequests, db, users, type User } from "@/lib/db";
 import {
   checkPassword,
@@ -37,7 +38,7 @@ import {
 import { reportError } from "@/lib/errors";
 import { getBrands } from "@/sanity/content";
 import { isStoreKey, storeName } from "@/lib/woo/stores";
-import { readLicenseFile, saveLicenseFiles, type ValidatedLicenseFile } from "@/lib/license-docs";
+import { claimLicenseUploads, findUnclaimedUploads } from "@/lib/license-docs";
 
 export type FormState = { error?: string; ok?: boolean; notice?: string } | undefined;
 
@@ -128,6 +129,12 @@ export async function logout() {
   redirect("/login");
 }
 
+const expiryField = (kind: LicenseKind) =>
+  z.string().superRefine((value, ctx) => {
+    const problem = expiryProblem(kind, value);
+    if (problem) ctx.addIssue({ code: "custom", message: problem });
+  });
+
 const requestSchema = z.object({
   name: z.string().trim().min(2, "Enter your name").max(100, "Name is too long (100 characters max)"),
   email: z.email("Enter a valid email address").max(200).transform((s) => s.toLowerCase()),
@@ -140,12 +147,8 @@ const requestSchema = z.object({
     .min(5, "Enter your FFL number")
     .max(40, "That FFL number is too long")
     .regex(/^[A-Za-z0-9\-\s]+$/, "FFL numbers can only contain letters, numbers and dashes"),
-  fflExpires: z
-    .string()
-    .min(1, "Enter the date your FFL expires")
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Enter the FFL expiry as a date")
-    .refine((d) => !Number.isNaN(Date.parse(d)), "Enter a real date for the FFL expiry")
-    .refine((d) => d >= new Date().toISOString().slice(0, 10), "That FFL has expired. Renew it before requesting access."),
+  // Same rules as the form (src/lib/license-dates.ts): real, not expired, not years too far out.
+  fflExpires: expiryField("ffl"),
   // Every dealer needs a current SOT: number (usually the EIN it's registered under) and expiry.
   sotNumber: z
     .string()
@@ -153,12 +156,7 @@ const requestSchema = z.object({
     .min(5, "Enter your SOT number (EIN)")
     .max(40, "That SOT number is too long")
     .regex(/^[A-Za-z0-9\-\s]+$/, "SOT numbers can only contain letters, numbers and dashes"),
-  sotExpires: z
-    .string()
-    .min(1, "Enter the date your SOT expires")
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Enter the SOT expiry as a date")
-    .refine((d) => !Number.isNaN(Date.parse(d)), "Enter a real date for the SOT expiry")
-    .refine((d) => d >= new Date().toISOString().slice(0, 10), "That SOT has expired. Renew it before requesting access."),
+  sotExpires: expiryField("sot"),
   message: z.string().trim().max(2000).optional(),
 });
 
@@ -185,18 +183,13 @@ export async function requestAccess(_: FormState, form: FormData): Promise<FormS
     if (!byIp.ok) return { error: tooManyMessage(byIp.retryMinutes) };
     if (!byEmail.ok) return { error: "We've already received requests from this email today. We'll be in touch, or contact us directly." };
 
-    // Optional copies of the FFL and SOT. Validate both before saving anything.
-    const files: ValidatedLicenseFile[] = [];
-    for (const [field, kind] of [["fflFile", "ffl"], ["sotFile", "sot"]] as const) {
-      const file = await readLicenseFile(form.get(field), kind);
-      if (typeof file === "string") return { error: file };
-      // Both copies are required (see the request-access form).
-      if (!file) return { error: `Upload a copy of your ${kind === "ffl" ? "FFL" : "SOT"} (PDF, JPG, PNG or WebP, up to 2MB).` };
-      files.push(file);
-    }
+    // FFL and SOT copies (both required) were uploaded one at a time as they were picked
+    // (/api/license-upload, to stay under Vercel's request size limit). The form sends their ids.
+    const files = await findUnclaimedUploads({ ffl: String(form.get("fflUploadId") ?? ""), sot: String(form.get("sotUploadId") ?? "") });
+    if (typeof files === "string") return { error: files };
 
     const [created] = await db().insert(accessRequests).values({ ...r, fflExpires: r.fflExpires || null, sotNumber: r.sotNumber || null, sotExpires: r.sotExpires || null }).returning({ id: accessRequests.id });
-    await saveLicenseFiles(created.id, files);
+    await claimLicenseUploads(created.id, files.map((f) => f.id));
 
     // The request is saved. From here on, email problems are logged, not shown as a failed request.
     const brand = (await getBrands()).find((b) => b.storeKey === r.brandSlug);

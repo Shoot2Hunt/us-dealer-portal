@@ -1,13 +1,15 @@
 import "server-only";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lt } from "drizzle-orm";
 import { accessRequests, db, licenseDocuments, type LicenseDocKind, type User } from "@/lib/db";
 import { isAdmin } from "@/lib/auth/session";
 
 /**
- * Per-file cap. Two files plus the form must stay under Vercel's 4.5MB request
- * limit, and under serverActions.bodySizeLimit in next.config.ts.
+ * Per-file cap. Each file is uploaded in its own request (/api/license-upload), which must
+ * stay under Vercel's 4.5MB request limit, so 4MB is the most a single file can be.
  */
-export const MAX_LICENSE_FILE_BYTES = 2 * 1024 * 1024;
+export const MAX_LICENSE_FILE_BYTES = 4 * 1024 * 1024;
+/** An uploaded copy not yet attached to a request is kept this long, then deleted. */
+const UNCLAIMED_UPLOAD_HOURS = 24;
 
 export const LICENSE_DOC_LABEL: Record<LicenseDocKind, string> = { ffl: "FFL", sot: "SOT" };
 
@@ -50,7 +52,7 @@ export type ValidatedLicenseFile = { kind: LicenseDocKind; fileName: string; con
 export async function readLicenseFile(value: FormDataEntryValue | null, kind: LicenseDocKind): Promise<ValidatedLicenseFile | string | null> {
   if (!(value instanceof File) || value.size === 0) return null;
   const label = LICENSE_DOC_LABEL[kind];
-  if (value.size > MAX_LICENSE_FILE_BYTES) return `Your ${label} file is too large (2MB max).`;
+  if (value.size > MAX_LICENSE_FILE_BYTES) return `Your ${label} file is too large (4MB max).`;
   const bytes = new Uint8Array(await value.arrayBuffer());
   const contentType = sniffType(bytes);
   if (!contentType) return `Your ${label} file must be a PDF, JPG, PNG or WebP.`;
@@ -58,9 +60,46 @@ export async function readLicenseFile(value: FormDataEntryValue | null, kind: Li
   return { kind, fileName, contentType, size: value.size, data: Buffer.from(bytes).toString("base64") };
 }
 
-export async function saveLicenseFiles(accessRequestId: string, files: ValidatedLicenseFile[]) {
-  if (!files.length) return;
-  await db().insert(licenseDocuments).values(files.map((f) => ({ ...f, accessRequestId })));
+/**
+ * Save a copy uploaded from the request-access form before the request exists. It belongs
+ * to no one until claimLicenseUploads attaches it; unclaimed copies are deleted after a day.
+ */
+export async function saveUnclaimedLicenseFile(file: ValidatedLicenseFile): Promise<string> {
+  const cutoff = new Date(Date.now() - UNCLAIMED_UPLOAD_HOURS * 3600_000);
+  await db()
+    .delete(licenseDocuments)
+    .where(and(isNull(licenseDocuments.accessRequestId), isNull(licenseDocuments.userId), lt(licenseDocuments.createdAt, cutoff)));
+  const [row] = await db().insert(licenseDocuments).values(file).returning({ id: licenseDocuments.id });
+  return row.id;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Check the uploaded copies named in a request: each must exist, be the right kind, be
+ * recent and not already belong to a request or dealer. Returns their names, or an error.
+ */
+export async function findUnclaimedUploads(ids: Record<LicenseDocKind, string>): Promise<{ kind: LicenseDocKind; fileName: string; id: string }[] | string> {
+  const wanted = Object.entries(ids) as [LicenseDocKind, string][];
+  for (const [kind, id] of wanted) if (!UUID.test(id)) return `Upload a copy of your ${LICENSE_DOC_LABEL[kind]} (PDF, JPG, PNG or WebP, up to 4MB).`;
+  const cutoff = new Date(Date.now() - UNCLAIMED_UPLOAD_HOURS * 3600_000);
+  const rows = await db()
+    .select({ id: licenseDocuments.id, kind: licenseDocuments.kind, fileName: licenseDocuments.fileName })
+    .from(licenseDocuments)
+    .where(and(inArray(licenseDocuments.id, wanted.map(([, id]) => id)), isNull(licenseDocuments.accessRequestId), isNull(licenseDocuments.userId), gt(licenseDocuments.createdAt, cutoff)));
+  for (const [kind, id] of wanted) {
+    if (!rows.some((r) => r.id === id && r.kind === kind)) return `Your ${LICENSE_DOC_LABEL[kind]} copy has expired or is missing. Please upload it again.`;
+  }
+  return rows;
+}
+
+/** Attach checked uploads to the new access request. */
+export async function claimLicenseUploads(accessRequestId: string, ids: string[]) {
+  if (!ids.length) return;
+  await db()
+    .update(licenseDocuments)
+    .set({ accessRequestId })
+    .where(and(inArray(licenseDocuments.id, ids), isNull(licenseDocuments.accessRequestId), isNull(licenseDocuments.userId)));
 }
 
 /** Metadata only (no file bytes) for the given access requests. */

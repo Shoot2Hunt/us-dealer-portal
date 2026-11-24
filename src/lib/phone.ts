@@ -42,6 +42,23 @@ export function parsePhone(raw: string | null | undefined): PhoneResult | null {
   return { ok: true, value: `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}${suffix}` };
 }
 
+/**
+ * What a phone field should hold after a keystroke or paste, or null to ignore it. US
+ * numbers stop at 10 digits (a "+1" in front doesn't count; a pasted 11-digit number starting
+ * with 1 has the 1 dropped). International numbers (+ and another code) stop at 15. An
+ * extension can still be typed after the number.
+ */
+export function limitPhoneInput(raw: string): string | null {
+  const ext = raw.match(EXTENSION);
+  const main = ext ? raw.slice(0, ext.index) : raw;
+  const trimmed = main.trim();
+  let digits = trimmed.replace(/\D/g, "");
+  if (trimmed.startsWith("+") && !trimmed.startsWith("+1")) return digits.length > 15 ? null : raw;
+  if (trimmed.startsWith("+1")) digits = digits.slice(1);
+  else if (digits.length === 11 && digits.startsWith("1")) return digits.slice(1) + (ext ? ` x${ext[1]}` : "");
+  return digits.length > 10 ? null : raw;
+}
+
 /** Formats a US number while it's being typed: "2085" → "(208) 5". Leaves anything else alone. */
 export function formatPhoneAsTyped(raw: string): string {
   if (raw.trim().startsWith("+") && !raw.trim().startsWith("+1")) return raw;

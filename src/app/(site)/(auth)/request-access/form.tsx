@@ -1,25 +1,99 @@
 "use client";
 
-import { useActionState, useState, type ChangeEvent } from "react";
+import { startTransition, useActionState, useEffect, useRef, useState } from "react";
 import { requestAccess } from "../actions";
 import { PhoneInput } from "@/components/phone-input";
+import { FileField, type UploadedFile } from "@/components/file-field";
+import { EXPIRY_LIMITS, expiryProblem, type LicenseKind } from "@/lib/license-dates";
 
 const ACCEPT = "application/pdf,image/jpeg,image/png,image/webp";
-/** Matches MAX_LICENSE_FILE_BYTES in src/lib/license-docs.ts (checked again on the server). */
-const MAX_FILE_BYTES = 2 * 2048 * 2048;
+/**
+ * Matches MAX_LICENSE_FILE_BYTES in src/lib/license-docs.ts (checked again on the server).
+ * Each file uploads on its own request, and Vercel caps a request at 4.5MB, so 4MB is the most.
+ */
+const MAX_FILE_BYTES = 4 * 1024 * 1024;
+
+type Fields = {
+  brandSlug: string;
+  name: string;
+  phone: string;
+  email: string;
+  company: string;
+  fflNumber: string;
+  fflExpires: string;
+  sotNumber: string;
+  sotExpires: string;
+  sendCopy: boolean;
+};
+const EMPTY: Fields = { brandSlug: "", name: "", phone: "", email: "", company: "", fflNumber: "", fflExpires: "", sotNumber: "", sotExpires: "", sendCopy: true };
+type Files = { fflFile: UploadedFile | null; sotFile: UploadedFile | null };
+
+// --- Draft: survives a refresh, gone when the tab is closed or the request is sent. ---
+// Files are already uploaded by then, so the draft only needs their ids and names.
+const DRAFT_KEY = "request-access-draft";
+type Draft = Partial<Fields> & { files?: Partial<Files> };
+const clearDraft = () => {
+  try {
+    sessionStorage.removeItem(DRAFT_KEY);
+  } catch {}
+};
 
 export function RequestAccessForm({ brands }: { brands: { value: string; label: string }[] }) {
-  const [state, action, pending] = useActionState(requestAccess, undefined);
-  const [fileError, setFileError] = useState<string | null>(null);
+  const [state, dispatch, pending] = useActionState(requestAccess, undefined);
+  const [fields, setFields] = useState<Fields>(EMPTY);
+  const [files, setFiles] = useState<Files>({ fflFile: null, sotFile: null });
+  const [fileErrors, setFileErrors] = useState<Partial<Record<keyof Files, string>>>({});
+  const [touched, setTouched] = useState<Partial<Record<LicenseKind, boolean>>>({});
+  const restored = useRef(false);
 
-  function checkSize(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (file && file.size > MAX_FILE_BYTES) {
-      e.target.value = "";
-      setFileError(`"${file.name}" is larger than 3MB. Please choose a smaller file or a lower-resolution scan.`);
-    } else {
-      setFileError(null);
+  // Restore the draft after a refresh. Runs once, in the browser only.
+  useEffect(() => {
+    let draft: Draft | null = null;
+    try {
+      draft = JSON.parse(sessionStorage.getItem(DRAFT_KEY) ?? "null");
+    } catch {}
+    if (draft) {
+      const { files: savedFiles, ...savedFields } = draft;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sessionStorage only exists in the browser, after hydration
+      setFields((f) => ({ ...f, ...savedFields }));
+      setFiles((f) => ({ fflFile: f.fflFile ?? savedFiles?.fflFile ?? null, sotFile: f.sotFile ?? savedFiles?.sotFile ?? null }));
     }
+    restored.current = true;
+  }, []);
+
+  // Save as they type and upload.
+  useEffect(() => {
+    if (!restored.current) return;
+    try {
+      sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ ...fields, files } satisfies Draft));
+    } catch {}
+  }, [fields, files]);
+
+  useEffect(() => {
+    if (state?.ok) clearDraft();
+  }, [state]);
+
+  const set = <K extends keyof Fields>(key: K, value: Fields[K]) => setFields((f) => ({ ...f, [key]: value }));
+  const setFile = (key: keyof Files) => (file: UploadedFile | null) => {
+    setFiles((f) => ({ ...f, [key]: file }));
+    setFileErrors((e) => ({ ...e, [key]: undefined }));
+  };
+
+  function submit(e: React.SyntheticEvent<HTMLFormElement>) {
+    // Submitted by hand rather than with <form action>, which would clear every field
+    // whenever the server sends back an error.
+    e.preventDefault();
+    const missing: Partial<Record<keyof Files, string>> = {};
+    if (!files.fflFile) missing.fflFile = "Upload a copy of your FFL.";
+    if (!files.sotFile) missing.sotFile = "Upload a copy of your SOT.";
+    if (missing.fflFile || missing.sotFile) {
+      setFileErrors(missing);
+      return;
+    }
+    const data = new FormData(e.currentTarget);
+    data.set("fflUploadId", files.fflFile!.id);
+    data.set("sotUploadId", files.sotFile!.id);
+    startTransition(() => dispatch(data));
   }
 
   if (state?.ok) {
@@ -30,11 +104,19 @@ export function RequestAccessForm({ brands }: { brands: { value: string; label: 
       </div>
     );
   }
+
+  const text = (key: keyof Fields) => ({
+    id: key,
+    name: key,
+    value: fields[key] as string,
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => set(key, e.target.value),
+  });
+
   return (
-    <form action={action} className="mt-5 space-y-4">
+    <form onSubmit={submit} className="mt-5 space-y-4">
       <div>
         <label className="label" htmlFor="brandSlug">Brand you work with</label>
-        <select className="input" id="brandSlug" name="brandSlug" required defaultValue="">
+        <select className="input" id="brandSlug" name="brandSlug" required value={fields.brandSlug} onChange={(e) => set("brandSlug", e.target.value)}>
           <option value="" disabled>Choose a brand</option>
           {brands.map((b) => (
             <option key={b.value} value={b.value}>{b.label}</option>
@@ -44,64 +126,123 @@ export function RequestAccessForm({ brands }: { brands: { value: string; label: 
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="label" htmlFor="name">Your name</label>
-          <input className="input" id="name" name="name" required minLength={2} maxLength={100} autoComplete="name" />
+          <input className="input" {...text("name")} required minLength={2} maxLength={100} autoComplete="name" />
         </div>
         <div>
           <label className="label" htmlFor="phone">Phone</label>
-          <PhoneInput id="phone" name="phone" />
+          <PhoneInput id="phone" name="phone" value={fields.phone} onChange={(v) => set("phone", v)} />
         </div>
       </div>
       <div>
         <label className="label" htmlFor="email">Email</label>
-        <input className="input" id="email" name="email" type="email" required maxLength={200} autoComplete="email" />
+        <input className="input" {...text("email")} type="email" required maxLength={200} autoComplete="email" />
       </div>
       <div>
         <label className="label" htmlFor="company">Business name</label>
-        <input className="input" id="company" name="company" required minLength={2} maxLength={120} autoComplete="organization" />
+        <input className="input" {...text("company")} required minLength={2} maxLength={120} autoComplete="organization" />
       </div>
-      <section className="space-y-3 border-t border-line pt-4">
-        <h2 className="text-sm font-semibold">FFL</h2>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="label" htmlFor="fflNumber">FFL number</label>
-            <input className="input" id="fflNumber" name="fflNumber" required minLength={5} maxLength={40} pattern="[A-Za-z0-9 -]+" title="Letters, numbers and dashes" />
-          </div>
-          <div>
-            <label className="label" htmlFor="fflExpires">FFL expires</label>
-            <input className="input" id="fflExpires" name="fflExpires" type="date" required min={new Date().toISOString().slice(0, 10)} />
-          </div>
-        </div>
-        <div>
-          <label className="label" htmlFor="fflFile">FFL copy</label>
-          <input className="input" id="fflFile" name="fflFile" type="file" accept={ACCEPT} onChange={checkSize} required />
-        </div>
-      </section>
-      <section className="space-y-3 border-t border-line pt-4">
-        <h2 className="text-sm font-semibold">SOT</h2>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="label" htmlFor="sotNumber">SOT number / EIN</label>
-            <input className="input" id="sotNumber" name="sotNumber" required minLength={5} maxLength={40} pattern="[A-Za-z0-9 -]+" title="Letters, numbers and dashes" />
-          </div>
-          <div>
-            <label className="label" htmlFor="sotExpires">SOT expires</label>
-            <input className="input" id="sotExpires" name="sotExpires" type="date" required min={new Date().toISOString().slice(0, 10)} />
-          </div>
-        </div>
-        <div>
-          <label className="label" htmlFor="sotFile">SOT copy</label>
-          <input className="input" id="sotFile" name="sotFile" type="file" accept={ACCEPT} onChange={checkSize} required/>
-        </div>
-      </section>
-      <p className="text-xs text-muted">
-          PDF, JPG, PNG or WebP, up to 2MB each.
-      </p>
-      {fileError && <p className="text-sm text-red-700">{fileError}</p>}
+
+      {(["ffl", "sot"] as const).map((kind) => {
+        const KIND = kind.toUpperCase();
+        const numberKey = `${kind}Number` as const;
+        const expiresKey = `${kind}Expires` as const;
+        const fileKey = `${kind}File` as const;
+        const problem = expiryProblem(kind, fields[expiresKey]);
+        return (
+          <section key={kind} className="space-y-3 border-t border-line pt-4">
+            <h2 className="text-sm font-semibold">{KIND}</h2>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label" htmlFor={numberKey}>{kind === "ffl" ? "FFL number" : "SOT number / EIN"}</label>
+                <input className="input" {...text(numberKey)} required minLength={5} maxLength={40} pattern="[A-Za-z0-9 -]+" title="Letters, numbers and dashes" />
+              </div>
+              <div>
+                <label className="label" htmlFor={expiresKey}>{KIND} expires</label>
+                <ExpiryInput
+                  id={expiresKey}
+                  value={fields[expiresKey]}
+                  onChange={(v) => set(expiresKey, v)}
+                  problem={problem}
+                  showProblem={Boolean(touched[kind])}
+                  onBlur={() => setTouched((t) => ({ ...t, [kind]: true }))}
+                  maxYears={EXPIRY_LIMITS[kind].maxYears}
+                />
+              </div>
+            </div>
+            <FileField
+              id={fileKey}
+              label={`${KIND} copy`}
+              kind={kind}
+              value={files[fileKey]}
+              onChange={setFile(fileKey)}
+              accept={ACCEPT}
+              maxBytes={MAX_FILE_BYTES}
+              hint="PDF, JPG, PNG or WebP, up to 4MB."
+              error={fileErrors[fileKey]}
+            />
+          </section>
+        );
+      })}
+
       <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" name="sendCopy" defaultChecked /> Email me a copy of this request
+        <input type="checkbox" name="sendCopy" checked={fields.sendCopy} onChange={(e) => set("sendCopy", e.target.checked)} /> Email me a copy of this request
       </label>
-      {state?.error && <p className="text-sm text-red-700">{state.error}</p>}
+      {state?.error && <p role="alert" className="text-sm text-red-700">{state.error}</p>}
       <button className="btn w-full" disabled={pending}>{pending ? "Sending…" : "Send request"}</button>
     </form>
+  );
+}
+
+/** A date field that explains a bad expiry (past, unreal or too far out) and blocks submitting it. */
+function ExpiryInput({
+  id,
+  value,
+  onChange,
+  problem,
+  showProblem,
+  onBlur,
+  maxYears,
+}: {
+  id: string;
+  value: string;
+  onChange: (v: string) => void;
+  problem: string | null;
+  showProblem: boolean;
+  onBlur: () => void;
+  maxYears: number;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    ref.current?.setCustomValidity(problem ?? "");
+  }, [problem]);
+  const [limits] = useState(() => {
+    const now = new Date();
+    const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const max = new Date(now);
+    max.setFullYear(max.getFullYear() + maxYears);
+    return { min: iso(now), max: iso(max) };
+  });
+  const show = showProblem && problem;
+  return (
+    <>
+      <input
+        ref={ref}
+        className={`input ${show ? "border-red-400" : ""}`}
+        id={id}
+        name={id}
+        type="date"
+        required
+        // min/max also stop browsers accepting 5- or 6-digit years.
+        min={limits.min}
+        max={limits.max}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={onBlur}
+        onInvalid={onBlur}
+        aria-invalid={Boolean(show)}
+        suppressHydrationWarning
+      />
+      {show && <p role="alert" className="mt-1 text-xs text-red-700">{problem}</p>}
+    </>
   );
 }
