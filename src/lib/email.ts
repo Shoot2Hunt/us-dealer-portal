@@ -1,6 +1,6 @@
 import "server-only";
-import { eq } from "drizzle-orm";
-import { db, emailLog } from "@/lib/db";
+import { and, eq } from "drizzle-orm";
+import { db, emailLog, users } from "@/lib/db";
 import { errorMessage, reportError } from "@/lib/errors";
 
 export type EmailMessage = {
@@ -25,38 +25,76 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 type Delivery = { status: "sent" | "failed" | "logged"; attempts: number; providerId?: string; error?: string };
 
-/** Talk to the provider (Resend), retrying network errors, rate limits and 5xx responses. */
-async function deliver(to: string[], msg: Pick<EmailMessage, "subject" | "text" | "html" | "replyTo">): Promise<Delivery> {
-  const key = process.env.RESEND_API_KEY;
-  if (!key) {
+type OutgoingMessage = Pick<EmailMessage, "subject" | "text" | "html" | "replyTo">;
+
+/**
+ * The configured email provider. Mailgun when MAILGUN_API_KEY and MAILGUN_DOMAIN are set
+ * (MAILGUN_REGION=eu for EU accounts), else Resend with RESEND_API_KEY, else none.
+ */
+export function emailProvider(): { name: "mailgun" | "resend"; request: (to: string[], msg: OutgoingMessage) => Request } | null {
+  const mgKey = process.env.MAILGUN_API_KEY?.trim();
+  const mgDomain = process.env.MAILGUN_DOMAIN?.trim();
+  if (mgKey && mgDomain) {
+    const host = process.env.MAILGUN_REGION?.trim().toLowerCase() === "eu" ? "api.eu.mailgun.net" : "api.mailgun.net";
+    const from = process.env.EMAIL_FROM?.trim() || `Dealer Portal <no-reply@${mgDomain}>`;
+    return {
+      name: "mailgun",
+      request: (to, msg) => {
+        const body = new URLSearchParams({ from, subject: msg.subject, text: msg.text });
+        for (const addr of to) body.append("to", addr);
+        if (msg.html) body.set("html", msg.html);
+        if (msg.replyTo) body.set("h:Reply-To", msg.replyTo);
+        return new Request(`https://${host}/v3/${encodeURIComponent(mgDomain)}/messages`, {
+          method: "POST",
+          headers: { Authorization: `Basic ${Buffer.from(`api:${mgKey}`).toString("base64")}` },
+          body,
+        });
+      },
+    };
+  }
+  const resendKey = process.env.RESEND_API_KEY?.trim();
+  if (resendKey) {
+    return {
+      name: "resend",
+      request: (to, msg) =>
+        new Request("https://api.resend.com/emails", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            from: process.env.EMAIL_FROM ?? "Dealer Portal <no-reply@example.com>",
+            to,
+            subject: msg.subject,
+            text: msg.text,
+            html: msg.html,
+            reply_to: msg.replyTo || undefined,
+          }),
+        }),
+    };
+  }
+  return null;
+}
+
+/** Talk to the provider, retrying network errors, rate limits and 5xx responses. */
+async function deliver(to: string[], msg: OutgoingMessage): Promise<Delivery> {
+  const provider = emailProvider();
+  if (!provider) {
     if (process.env.NODE_ENV === "production") {
-      return { status: "failed", attempts: 0, error: "RESEND_API_KEY is not set, so no email can be sent." };
+      return { status: "failed", attempts: 0, error: "No email provider is set up (MAILGUN_API_KEY + MAILGUN_DOMAIN, or RESEND_API_KEY), so no email can be sent." };
     }
-    console.log(`[email] (not sent: no RESEND_API_KEY) to=${to.join(", ")} subject=${msg.subject}\n${msg.text}`);
+    console.log(`[email] (not sent: no email provider set up) to=${to.join(", ")} subject=${msg.subject}\n${msg.text}`);
     return { status: "logged", attempts: 0 };
   }
 
   let error = "Unknown error";
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      const res = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          from: process.env.EMAIL_FROM ?? "Dealer Portal <no-reply@example.com>",
-          to,
-          subject: msg.subject,
-          text: msg.text,
-          html: msg.html,
-          reply_to: msg.replyTo || undefined,
-        }),
-        signal: AbortSignal.timeout(10_000),
-      });
+      // A fresh request each attempt: a request body can only be sent once.
+      const res = await fetch(provider.request(to, msg), { signal: AbortSignal.timeout(10_000) });
       if (res.ok) {
         const json = (await res.json().catch(() => ({}))) as { id?: string };
         return { status: "sent", attempts: attempt, providerId: json.id };
       }
-      error = `Email provider returned ${res.status}: ${(await res.text().catch(() => "")).slice(0, 500)}`;
+      error = `${provider.name === "mailgun" ? "Mailgun" : "Resend"} returned ${res.status}: ${(await res.text().catch(() => "")).slice(0, 500)}`;
       // 4xx other than rate limiting means the message itself is wrong; retrying won't help.
       if (res.status < 500 && res.status !== 429) return { status: "failed", attempts: attempt, error };
     } catch (err) {
@@ -126,4 +164,27 @@ export async function resendLoggedEmail(id: number): Promise<EmailResult> {
 export function appUrl(path = "") {
   const base = process.env.APP_URL ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
   return `${base.replace(/\/$/, "")}${path}`;
+}
+
+/**
+ * Who gets admin alerts (new access requests, orders that need attention, payments):
+ * ADMIN_NOTIFY_EMAIL (one address, or several separated by commas), else every active
+ * super admin, so alerts never silently go nowhere.
+ */
+export async function adminNotifyEmails(): Promise<string[]> {
+  const configured = (process.env.ADMIN_NOTIFY_EMAIL ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (configured.length) return configured;
+  try {
+    const rows = await db()
+      .select({ email: users.email })
+      .from(users)
+      .where(and(eq(users.role, "super_admin"), eq(users.status, "active")));
+    return rows.map((r) => r.email);
+  } catch (err) {
+    reportError("admin notify emails", err);
+    return [];
+  }
 }

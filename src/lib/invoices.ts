@@ -5,7 +5,7 @@ import { db, loginThrottle, orders, payments, type Order, type Payment, type Use
 import { authnetConfig, chargeCard, debitBank, type OpaqueData } from "@/lib/authnet";
 import { getPaymentSettings } from "@/sanity/content";
 import { releaseIfPaid } from "@/lib/orders";
-import { appUrl, sendEmail } from "@/lib/email";
+import { adminNotifyEmails, appUrl, sendEmail } from "@/lib/email";
 import { reportError } from "@/lib/errors";
 
 /*
@@ -267,7 +267,7 @@ export async function payInvoices(user: User, input: PayInvoicesInput): Promise<
       reportError("invoice payment record", err, { transId: tx.transId, userId: user.id });
       await sendEmail({
         kind: "invoice.record_failed",
-        to: process.env.ADMIN_NOTIFY_EMAIL ?? "",
+        to: await adminNotifyEmails(),
         subject: `Action needed: invoice payment ${tx.transId} wasn't recorded`,
         text: `${user.company ?? user.name} (${user.email}) paid $${dollars(amountCents)} by ${input.method} (Authorize.net transaction ${tx.transId}) toward orders ${numbers.map((n) => `#${n}`).join(", ")}, but saving it failed: ${err instanceof Error ? err.message : String(err)}`,
       });
@@ -283,7 +283,7 @@ export async function payInvoices(user: User, input: PayInvoicesInput): Promise<
     });
     await sendEmail({
       kind: "invoice.payment_notice",
-      to: process.env.ADMIN_NOTIFY_EMAIL ?? "",
+      to: await adminNotifyEmails(),
       subject: `Invoice payment $${dollars(amountCents)} from ${user.company ?? user.name}`,
       text: `${how}, transaction ${tx.transId}\n\n${lines}`,
     });

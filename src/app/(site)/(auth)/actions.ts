@@ -25,7 +25,7 @@ import { checkSecondFactor } from "@/lib/auth/two-factor";
 import { passwordProblem } from "@/lib/auth/password-policy";
 import { clearLoginFailures, lockedMinutes, lockoutMessage, recordLoginFailure } from "@/lib/auth/throttle";
 import { clientKey, rateLimit, tooManyMessage } from "@/lib/rate-limit";
-import { appUrl, sendEmail } from "@/lib/email";
+import { adminNotifyEmails, appUrl, sendEmail } from "@/lib/email";
 import {
   accessRequestCopy,
   accessRequestToAdmins,
@@ -197,11 +197,12 @@ export async function requestAccess(_: FormState, form: FormData): Promise<FormS
     const brand = (await getBrands()).find((b) => b.storeKey === r.brandSlug);
     const summary: RequestSummary = { ...r, brandName: brand?.name ?? storeName(r.brandSlug), files };
 
-    const notify = [...(brand?.notificationEmails ?? []), process.env.ADMIN_NOTIFY_EMAIL ?? ""].filter(Boolean);
+    // The brand's own contacts plus the portal admins (ADMIN_NOTIFY_EMAIL, else super admins).
+    const notify = [...new Set([...(brand?.notificationEmails ?? []), ...(await adminNotifyEmails())])];
     if (notify.length) {
       await sendEmail({ to: notify, kind: "access_request.admin", ...(await accessRequestToAdmins(summary)), replyTo: r.email });
     } else {
-      reportError("access request", `No one to notify for ${r.brandSlug}: add notification emails to the brand in Sanity or set ADMIN_NOTIFY_EMAIL`);
+      reportError("access request", `No one to notify for ${r.brandSlug}: add notification emails to the brand in Sanity, set ADMIN_NOTIFY_EMAIL, or add a super admin`);
     }
 
     if (wantsCopy) {

@@ -6,7 +6,7 @@ import { z } from "zod";
 import { phoneField } from "@/lib/phone";
 import { getCurrentUser } from "@/lib/auth/session";
 import { CONTACT_TOPICS } from "@/lib/contact";
-import { appUrl, sendEmail } from "@/lib/email";
+import { adminNotifyEmails, appUrl, sendEmail } from "@/lib/email";
 import { reportError } from "@/lib/errors";
 import { getSiteSettings } from "@/sanity/content";
 import { sanityWriter } from "@/sanity/write";
@@ -78,7 +78,7 @@ export async function sendContactMessage(_: ContactState, form: FormData): Promi
   }
 
   // Email whoever handles messages, even if saving to Sanity failed.
-  const to = [...new Set([process.env.ADMIN_NOTIFY_EMAIL, settings.supportEmail].filter((x): x is string => Boolean(x)))];
+  const to = [...new Set([...(await adminNotifyEmails()), settings.supportEmail].filter((x): x is string => Boolean(x)))];
   let emailed = false;
   if (to.length) {
     const topic = CONTACT_TOPICS.find((t) => t.value === m.topic)?.title ?? m.topic;

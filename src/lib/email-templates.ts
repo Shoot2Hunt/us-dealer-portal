@@ -114,7 +114,7 @@ function requestDetails(r: RequestSummary): Block {
   };
 }
 
-/** To the brand's notification emails and ADMIN_NOTIFY_EMAIL. */
+/** To the brand's notification emails and the portal admins (adminNotifyEmails). */
 export function accessRequestToAdmins(r: RequestSummary) {
   return build({
     subject: `Dealer access request: ${r.company}`,

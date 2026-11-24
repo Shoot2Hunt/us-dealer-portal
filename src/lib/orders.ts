@@ -20,7 +20,7 @@ import { refreshProduct } from "@/lib/woo/sync";
 import { createWooOrder, setWooOrderStatus } from "@/lib/woo/orders";
 import { evaluateDiscount } from "@/lib/discounts";
 import { isStoreKey, storeName, type StoreKey } from "@/lib/woo/stores";
-import { appUrl, sendEmail } from "@/lib/email";
+import { adminNotifyEmails, appUrl, sendEmail } from "@/lib/email";
 import { addDays, balanceOf, formatDue, getTermsStatus, todayIso } from "@/lib/invoices";
 
 // Every field has an upper bound: these values go to WooCommerce and into emails.
@@ -228,7 +228,7 @@ export async function placeOrder(user: User, input: CheckoutInput): Promise<Chec
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
       await db().insert(storeOrders).values({ orderId: order.id, store, subtotal, error });
-      await sendEmail({ kind: "order.store_failed", to: process.env.ADMIN_NOTIFY_EMAIL ?? "", subject: `Action needed: order #${order.number} didn't reach ${storeName(store)}`, text: `${error}\n\n${appUrl(`/admin/orders/${order.id}`)}` });
+      await sendEmail({ kind: "order.store_failed", to: await adminNotifyEmails(), subject: `Action needed: order #${order.number} didn't reach ${storeName(store)}`, text: `${error}\n\n${appUrl(`/admin/orders/${order.id}`)}` });
     }
   }
 
@@ -291,7 +291,7 @@ export async function markPaymentProblem(orderId: string, paymentId: number, rea
       await db().update(storeOrders).set({ wooStatus: "on-hold", updatedAt: new Date() }).where(eq(storeOrders.id, so.id));
     }
   }
-  await sendEmail({ kind: "order.payment_problem", to: process.env.ADMIN_NOTIFY_EMAIL ?? "", subject: `Payment problem on order #${order?.number}`, text: `${reason}\n\n${appUrl(`/admin/orders/${orderId}`)}` });
+  await sendEmail({ kind: "order.payment_problem", to: await adminNotifyEmails(), subject: `Payment problem on order #${order?.number}`, text: `${reason}\n\n${appUrl(`/admin/orders/${orderId}`)}` });
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
