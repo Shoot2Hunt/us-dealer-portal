@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useActionState, useEffect, useRef, useState } from "react";
+import { startTransition, useActionState, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { requestAccess } from "../actions";
 import { PhoneInput } from "@/components/phone-input";
 import { FileField, type UploadedFile } from "@/components/file-field";
@@ -147,7 +147,7 @@ export function RequestAccessForm({ brands }: { brands: { value: string; label: 
         const numberKey = `${kind}Number` as const;
         const expiresKey = `${kind}Expires` as const;
         const fileKey = `${kind}File` as const;
-        const problem = expiryProblem(kind, fields[expiresKey]);
+        const problem = expiryProblem(kind, fields[expiresKey], new Date(), 0);
         return (
           <section key={kind} className="space-y-3 border-t border-line pt-4">
             <h2 className="text-sm font-semibold">{KIND}</h2>
@@ -193,7 +193,16 @@ export function RequestAccessForm({ brands }: { brands: { value: string; label: 
   );
 }
 
-/** A date field that explains a bad expiry (past, unreal or too far out) and blocks submitting it. */
+const isoLocal = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+/** Today on the visitor's own calendar. Null while rendering on the server, whose clock is UTC. */
+const useToday = () => useSyncExternalStore(noopSubscribe, () => isoLocal(new Date()), () => null);
+const noopSubscribe = () => () => {};
+
+/**
+ * A date field for an expiry date. Checked as it's typed: a date before today is cleared
+ * straight away (the calendar greys those days out too), and an unreal or too-distant date
+ * is explained under the field and blocks submitting.
+ */
 function ExpiryInput({
   id,
   value,
@@ -212,37 +221,51 @@ function ExpiryInput({
   maxYears: number;
 }) {
   const ref = useRef<HTMLInputElement>(null);
+  const today = useToday();
+  const [rejected, setRejected] = useState<string | null>(null);
   useEffect(() => {
     ref.current?.setCustomValidity(problem ?? "");
   }, [problem]);
-  const [limits] = useState(() => {
-    const now = new Date();
-    const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    const max = new Date(now);
-    max.setFullYear(max.getFullYear() + maxYears);
-    return { min: iso(now), max: iso(max) };
-  });
-  const show = showProblem && problem;
+
+  const max = today ? (() => {
+    const d = new Date(`${today}T12:00:00`);
+    d.setFullYear(d.getFullYear() + maxYears);
+    return isoLocal(d);
+  })() : undefined;
+  // Browsers report each keystroke of the year ("0002", "0020", "0202"...), so a date only
+  // counts as entered once its year has 4 real digits.
+  const complete = (v: string) => /^[1-9]\d{3}-\d{2}-\d{2}$/.test(v);
+  const pretty = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+
+  const message = rejected ?? ((showProblem || complete(value)) && problem ? problem : null);
   return (
     <>
       <input
         ref={ref}
-        className={`input ${show ? "border-red-400" : ""}`}
+        className={`input ${message ? "border-red-400" : ""}`}
         id={id}
         name={id}
         type="date"
         required
-        // min/max also stop browsers accepting 5- or 6-digit years.
-        min={limits.min}
-        max={limits.max}
+        // min/max grey out past and far-off days in the calendar, and stop 5- or 6-digit years.
+        min={today ?? undefined}
+        max={max}
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (today && complete(v) && v < today) {
+            setRejected(`The expiry date can't be before today (${pretty(today)}).`);
+            onChange("");
+            return;
+          }
+          setRejected(null);
+          onChange(v);
+        }}
         onBlur={onBlur}
         onInvalid={onBlur}
-        aria-invalid={Boolean(show)}
-        suppressHydrationWarning
+        aria-invalid={Boolean(message)}
       />
-      {show && <p role="alert" className="mt-1 text-xs text-red-700">{problem}</p>}
+      {message && <p role="alert" className="mt-1 text-xs text-red-700">{message}</p>}
     </>
   );
 }
