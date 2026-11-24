@@ -22,7 +22,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     ["/admin", "Access requests"],
     ["/admin/dealers", "Dealers"],
     ["/admin/orders", "Orders"],
-    ...(isSuper ? ([["/admin/emails", "Emails"], ["/admin/sync", "Store sync"]] as [string, string][]) : []),
+    ...(isSuper ? ([["/admin/emails", "Emails"], ["/admin/sync", "Store sync"], ["/admin/payments", "Payments"]] as [string, string][]) : []),
   ];
   return (
     <div className="space-y-6">

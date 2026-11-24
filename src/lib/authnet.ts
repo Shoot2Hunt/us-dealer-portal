@@ -128,3 +128,63 @@ export async function getTransactionStatus(transId: string): Promise<string | nu
     return null;
   }
 }
+
+// --- Setup / health check (Admin → Payments) ---
+
+export type AuthnetEnv = "production" | "sandbox";
+export const authnetEnv = (): AuthnetEnv => (process.env.AUTHNET_ENV === "production" ? "production" : "sandbox");
+
+/** Which settings are present (values are never returned). */
+export function authnetConfig() {
+  const apiLoginId = Boolean(process.env.NEXT_PUBLIC_AUTHNET_API_LOGIN_ID?.trim());
+  const transactionKey = Boolean(process.env.AUTHNET_TRANSACTION_KEY?.trim());
+  const clientKey = Boolean(process.env.NEXT_PUBLIC_AUTHNET_CLIENT_KEY?.trim());
+  return { env: authnetEnv(), apiLoginId, transactionKey, clientKey, ready: apiLoginId && transactionKey && clientKey };
+}
+
+export type MerchantCheck =
+  | {
+      ok: true;
+      merchantName?: string;
+      gatewayId?: string;
+      isTestMode: boolean;
+      paymentMethods: string[];
+      acceptsCards: boolean;
+      acceptsEcheck: boolean;
+      /** Whether NEXT_PUBLIC_AUTHNET_CLIENT_KEY matches the account's public client key. */
+      clientKeyMatches: boolean | null;
+    }
+  | { ok: false; error: string; code?: string };
+
+/** Ask Authorize.net who these credentials belong to and what the account accepts. */
+export async function checkMerchant(): Promise<MerchantCheck> {
+  type Resp = {
+    isTestMode?: boolean;
+    merchantName?: string;
+    gatewayId?: string;
+    paymentMethods?: string[];
+    publicClientKey?: string;
+    messages: { resultCode: "Ok" | "Error"; message: { code: string; text: string }[] };
+  };
+  try {
+    const r = await call<Resp>("getMerchantDetailsRequest", {});
+    if (r.messages.resultCode !== "Ok") {
+      const m = r.messages.message?.[0];
+      return { ok: false, code: m?.code, error: m?.text ?? "Authorize.net rejected the request." };
+    }
+    const methods = r.paymentMethods ?? [];
+    const configured = process.env.NEXT_PUBLIC_AUTHNET_CLIENT_KEY?.trim();
+    return {
+      ok: true,
+      merchantName: r.merchantName,
+      gatewayId: r.gatewayId,
+      isTestMode: Boolean(r.isTestMode),
+      paymentMethods: methods,
+      acceptsCards: methods.some((m) => /visa|master|amex|american|discover|jcb|diners/i.test(m)),
+      acceptsEcheck: methods.some((m) => /echeck/i.test(m)),
+      clientKeyMatches: configured && r.publicClientKey ? configured === r.publicClientKey : null,
+    };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't reach Authorize.net." };
+  }
+}

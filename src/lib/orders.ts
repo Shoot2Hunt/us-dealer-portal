@@ -11,7 +11,7 @@ import {
   type Address,
   type User,
 } from "@/lib/db";
-import { authorizeCard, captureAuthorized, debitBank, voidTransaction, type OpaqueData } from "@/lib/authnet";
+import { authnetConfig, authorizeCard, captureAuthorized, debitBank, voidTransaction, type OpaqueData } from "@/lib/authnet";
 import { licenseProblems } from "@/lib/auth/session";
 import { loadCatalogContext, shippingBlock, toCatalogItem } from "@/lib/catalog";
 import { getPaymentSettings } from "@/sanity/content";
@@ -117,7 +117,9 @@ export async function placeOrder(user: User, input: CheckoutInput): Promise<Chec
   const parts = input.payments;
   if (parts.length > 1 && !settings.allowSplit) return { ok: false, error: "Split payments are turned off." };
   if (parts.length > settings.maxSplitParts) return { ok: false, error: `Use at most ${settings.maxSplitParts} payment methods.` };
+  const online = authnetConfig().ready;
   for (const p of parts) {
+    if (p.method !== "check" && !online) return { ok: false, error: "Card and bank payments aren't available right now. Please pay by check or contact us." };
     if (p.method === "card" && !settings.enableCard) return { ok: false, error: "Card payments are turned off." };
     if (p.method === "ach" && !settings.enableAch) return { ok: false, error: "ACH payments are turned off." };
     if (p.method === "check" && !settings.enableCheck) return { ok: false, error: "Check payments are turned off." };

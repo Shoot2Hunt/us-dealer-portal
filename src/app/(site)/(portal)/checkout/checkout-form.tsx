@@ -19,15 +19,18 @@ export function CheckoutForm({
   settings,
   defaultAddress,
   acceptJs,
+  onlinePayments,
 }: {
   settings: PaymentSettings;
+  /** False when Authorize.net isn't configured: card and ACH are hidden. */
+  onlinePayments: boolean;
   defaultAddress: Address;
   acceptJs: { url: string; apiLoginId: string; clientKey: string };
 }) {
   const cart = useCart();
   const router = useRouter();
   const methods = (["card", "ach", "check"] as Method[]).filter(
-    (m) => (m === "card" && settings.enableCard) || (m === "ach" && settings.enableAch) || (m === "check" && settings.enableCheck),
+    (m) => (m === "card" && settings.enableCard && onlinePayments) || (m === "ach" && settings.enableAch && onlinePayments) || (m === "check" && settings.enableCheck),
   );
   const canSplit = settings.allowSplit && settings.maxSplitParts > 1;
 
@@ -186,7 +189,18 @@ export function CheckoutForm({
             )}
           </div>
 
-          {(mode === "single" ? parts.slice(0, 1) : parts).map((p, i) => (
+          {!onlinePayments && (settings.enableCard || settings.enableAch) && (
+            <p className="flex items-start gap-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              <span className="icon-[lucide--info] mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              Card and bank payments aren&apos;t available right now.{methods.length ? " You can still pay by check." : ""}
+            </p>
+          )}
+          {methods.length === 0 && (
+            <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">
+              No payment methods are available at the moment, so orders can&apos;t be placed. Please contact us.
+            </p>
+          )}
+          {methods.length > 0 && (mode === "single" ? parts.slice(0, 1) : parts).map((p, i) => (
             <div key={p.key} className="space-y-3 rounded-md border border-line p-4">
               <div className="flex flex-wrap items-end gap-3">
                 <div className="min-w-[12rem] flex-1">
@@ -328,7 +342,7 @@ export function CheckoutForm({
         </div>
         <p className="text-xs text-muted">Shipping and any applicable tax are invoiced by each brand.</p>
         {error && <p className="rounded bg-red-50 p-2 text-sm text-red-800">{error}</p>}
-        <button className="btn-accent w-full" disabled={submitting}>{submitting ? "Placing order…" : "Place order"}</button>
+        <button className="btn-accent w-full" disabled={submitting || methods.length === 0}>{submitting ? "Placing order…" : "Place order"}</button>
         <p className="text-xs text-muted">Card and bank details go straight to Authorize.net and are never stored by the portal.</p>
       </aside>
     </form>
