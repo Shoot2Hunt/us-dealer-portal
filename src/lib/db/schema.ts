@@ -118,7 +118,10 @@ export const accessRequests = pgTable("access_requests", {
   brandSlug: text("brand_slug").notNull(),
   fflNumber: text("ffl_number").notNull(),
   fflExpires: date("ffl_expires"),
+  /** True when the dealer gave any SOT details (number, expiry or a copy). */
   hasSot: boolean("has_sot").notNull().default(false),
+  sotNumber: text("sot_number"),
+  sotExpires: date("sot_expires"),
   message: text("message"),
   status: requestStatusEnum("status").notNull().default("pending"),
   handledBy: uuid("handled_by"),

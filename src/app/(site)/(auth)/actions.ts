@@ -145,7 +145,13 @@ const requestSchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Enter the FFL expiry as a date")
     .refine((d) => !Number.isNaN(Date.parse(d)), "Enter a real date for the FFL expiry")
     .optional(),
-  hasSot: z.boolean(),
+  // SOT is optional: number (usually the EIN it's registered under), expiry and a copy.
+  sotNumber: z.string().trim().max(40, "That SOT number is too long").optional(),
+  sotExpires: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Enter the SOT expiry as a date")
+    .refine((d) => !Number.isNaN(Date.parse(d)), "Enter a real date for the SOT expiry")
+    .optional(),
   message: z.string().trim().max(2000).optional(),
 });
 
@@ -158,11 +164,13 @@ export async function requestAccess(_: FormState, form: FormData): Promise<FormS
     brandSlug: form.get("brandSlug"),
     fflNumber: form.get("fflNumber"),
     fflExpires: form.get("fflExpires") || undefined,
-    hasSot: form.get("hasSot") === "on",
+    sotNumber: form.get("sotNumber") || undefined,
+    sotExpires: form.get("sotExpires") || undefined,
     message: form.get("message") || undefined,
   });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Check the form" };
-  const r = parsed.data;
+  const sotFile = form.get("sotFile");
+  const r = { ...parsed.data, hasSot: Boolean(parsed.data.sotNumber || parsed.data.sotExpires || (sotFile instanceof File && sotFile.size > 0)) };
   const wantsCopy = form.get("sendCopy") === "on";
 
   try {
@@ -179,7 +187,7 @@ export async function requestAccess(_: FormState, form: FormData): Promise<FormS
       if (file) files.push(file);
     }
 
-    const [created] = await db().insert(accessRequests).values({ ...r, fflExpires: r.fflExpires || null }).returning({ id: accessRequests.id });
+    const [created] = await db().insert(accessRequests).values({ ...r, fflExpires: r.fflExpires || null, sotNumber: r.sotNumber || null, sotExpires: r.sotExpires || null }).returning({ id: accessRequests.id });
     await saveLicenseFiles(created.id, files);
 
     // The request is saved. From here on, email problems are logged, not shown as a failed request.

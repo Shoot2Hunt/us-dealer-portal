@@ -90,6 +90,8 @@ export type RequestSummary = {
   fflNumber: string;
   fflExpires?: string | null;
   hasSot: boolean;
+  sotNumber?: string | null;
+  sotExpires?: string | null;
   message?: string | null;
   files: { kind: string; fileName: string }[];
 };
@@ -104,7 +106,8 @@ function requestDetails(r: RequestSummary): Block {
       ["Phone", r.phone],
       ["FFL number", r.fflNumber],
       ["FFL expires", r.fflExpires],
-      ["SOT", r.hasSot ? "Yes, holds a current SOT" : "No"],
+      ["SOT number", r.hasSot ? r.sotNumber || "Not given" : "No SOT"],
+      ["SOT expires", r.sotExpires],
       ["Files", r.files.length ? r.files.map((f) => `${f.kind.toUpperCase()}: ${f.fileName}`).join("\n") : "None uploaded"],
       ["Message", r.message],
     ],

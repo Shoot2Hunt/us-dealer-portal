@@ -22,7 +22,18 @@ export default async function AdminRequestsPage() {
             <p className="text-base font-semibold">{r.company}</p>
             <p>{r.name} · {r.email}{r.phone && ` · ${r.phone}`}</p>
             <p className="text-muted">Via {storeName(r.brandSlug)} · {r.createdAt.toLocaleDateString()}</p>
-            <p>FFL <strong>{r.fflNumber}</strong>{r.fflExpires && ` (expires ${r.fflExpires})`} · SOT: {r.hasSot ? "says yes" : "no"}</p>
+            <p>FFL <strong>{r.fflNumber}</strong>{r.fflExpires && ` (expires ${r.fflExpires})`}</p>
+            <p>
+              SOT:{" "}
+              {r.hasSot ? (
+                <>
+                  <strong>{r.sotNumber ?? "number not given"}</strong>
+                  {r.sotExpires && ` (expires ${r.sotExpires})`}
+                </>
+              ) : (
+                "none given"
+              )}
+            </p>
             {r.message && <p className="rounded bg-panel p-2">{r.message}</p>}
             <div className="pt-2">
               <LicenseDocPreview docs={docs.filter((d) => d.accessRequestId === r.id)} />
@@ -32,7 +43,7 @@ export default async function AdminRequestsPage() {
             <form action={approveRequest} className="space-y-2 rounded-md border border-line p-3 text-sm">
               <input type="hidden" name="id" value={r.id} />
               <label className="flex items-center gap-2"><input type="checkbox" name="sotVerified" /> SOT verified</label>
-              <label className="block">SOT expires <input type="date" name="sotExpires" className="input mt-1" /></label>
+              <label className="block">SOT expires <input type="date" name="sotExpires" defaultValue={r.sotExpires ?? ""} className="input mt-1" /></label>
               <button className="btn w-full">Verify FFL &amp; approve</button>
             </form>
             <form action={denyRequest} className="space-y-2 text-sm">

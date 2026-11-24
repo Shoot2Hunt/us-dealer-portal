@@ -59,35 +59,44 @@ export function RequestAccessForm({ brands }: { brands: { value: string; label: 
         <label className="label" htmlFor="company">Business name</label>
         <input className="input" id="company" name="company" required minLength={2} maxLength={120} autoComplete="organization" />
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="label" htmlFor="fflNumber">FFL number</label>
-          <input className="input" id="fflNumber" name="fflNumber" required minLength={5} maxLength={40} pattern="[A-Za-z0-9 -]+" title="Letters, numbers and dashes" />
+      <section className="space-y-3 border-t border-line pt-4">
+        <h2 className="text-sm font-semibold">FFL</h2>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label" htmlFor="fflNumber">FFL number</label>
+            <input className="input" id="fflNumber" name="fflNumber" required minLength={5} maxLength={40} pattern="[A-Za-z0-9 -]+" title="Letters, numbers and dashes" />
+          </div>
+          <div>
+            <label className="label" htmlFor="fflExpires">FFL expires</label>
+            <input className="input" id="fflExpires" name="fflExpires" type="date" />
+          </div>
         </div>
         <div>
-          <label className="label" htmlFor="fflExpires">FFL expires</label>
-          <input className="input" id="fflExpires" name="fflExpires" type="date" />
-        </div>
-      </div>
-      <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" name="hasSot" /> I hold a current SOT
-      </label>
-      <fieldset className="space-y-3 rounded-md border border-line p-3">
-        <legend className="px-1 text-sm font-medium">License copies (optional)</legend>
-        <p className="text-xs text-muted">
-          Upload a copy of your FFL and, if you have one, your SOT to speed up approval. PDF, JPG, PNG or WebP, up to 2MB each.
-          Only the brand&apos;s admins and you can see them.
-        </p>
-        <div>
-          <label className="label" htmlFor="fflFile">FFL copy</label>
+          <label className="label" htmlFor="fflFile">FFL copy <span className="font-normal text-muted">(optional)</span></label>
           <input className="input" id="fflFile" name="fflFile" type="file" accept={ACCEPT} onChange={checkSize} />
         </div>
+      </section>
+      <section className="space-y-3 border-t border-line pt-4">
+        <h2 className="text-sm font-semibold">SOT <span className="font-normal text-muted">(only if you have one)</span></h2>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label" htmlFor="sotNumber">SOT number / EIN</label>
+            <input className="input" id="sotNumber" name="sotNumber" maxLength={40} pattern="[A-Za-z0-9 -]+" title="Letters, numbers and dashes" />
+          </div>
+          <div>
+            <label className="label" htmlFor="sotExpires">SOT expires</label>
+            <input className="input" id="sotExpires" name="sotExpires" type="date" />
+          </div>
+        </div>
         <div>
-          <label className="label" htmlFor="sotFile">SOT copy</label>
+          <label className="label" htmlFor="sotFile">SOT copy <span className="font-normal text-muted">(optional)</span></label>
           <input className="input" id="sotFile" name="sotFile" type="file" accept={ACCEPT} onChange={checkSize} />
         </div>
-        {fileError && <p className="text-sm text-red-700">{fileError}</p>}
-      </fieldset>
+      </section>
+      <p className="text-xs text-muted">
+        Copies speed up approval. PDF, JPG, PNG or WebP, up to 2MB each. Only the brand&apos;s admins and you can see them.
+      </p>
+      {fileError && <p className="text-sm text-red-700">{fileError}</p>}
       <div>
         <label className="label" htmlFor="message">Anything else? (optional)</label>
         <textarea className="input" id="message" name="message" rows={3} maxLength={2000} />
