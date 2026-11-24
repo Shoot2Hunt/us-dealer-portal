@@ -150,22 +150,7 @@ export const productOverride = defineType({
   fieldsets: [{ name: "link", title: "Linked WooCommerce product", options: { collapsible: true, collapsed: true } }],
   fields: [
     defineField({ name: "brand", type: "reference", to: [{ type: "brand" }], validation: (r) => r.required() }),
-    // Set automatically when opened from Catalog → Products or picked in the finder. These
-    // ids are unique and always present, unlike SKUs (most variations have none).
-    defineField({ name: "productId", title: "WooCommerce product ID", type: "number", readOnly: true, fieldset: "link" }),
-    defineField({ name: "variationId", title: "WooCommerce variation ID (0 = simple product)", type: "number", readOnly: true, fieldset: "link" }),
-    defineField({
-      name: "sku",
-      title: "SKU",
-      description: "Search below to pick a product from the synced catalog. Not needed when the product is linked by ID above.",
-      type: "string",
-      validation: (r) =>
-        r.custom((sku, ctx) =>
-          sku || typeof (ctx.document as { productId?: number } | undefined)?.productId === "number" ? true : "Pick a product below (or enter its SKU)",
-        ),
-      components: { input: SkuInput },
-    }),
-    defineField({ name: "label", title: "Label (for your reference)", type: "string" }),
+
     defineField({ name: "hidden", title: "Hide from dealers", type: "boolean", initialValue: false }),
     defineField({
       name: "dealerPrice",
