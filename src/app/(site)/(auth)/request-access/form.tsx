@@ -68,7 +68,7 @@ export function RequestAccessForm({ brands }: { brands: { value: string; label: 
           </div>
           <div>
             <label className="label" htmlFor="fflExpires">FFL expires</label>
-            <input className="input" id="fflExpires" name="fflExpires" type="date" required  />
+            <input className="input" id="fflExpires" name="fflExpires" type="date" required min={new Date().toISOString().slice(0, 10)} />
           </div>
         </div>
         <div>

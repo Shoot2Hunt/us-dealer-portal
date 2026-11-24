@@ -142,9 +142,10 @@ const requestSchema = z.object({
     .regex(/^[A-Za-z0-9\-\s]+$/, "FFL numbers can only contain letters, numbers and dashes"),
   fflExpires: z
     .string()
+    .min(1, "Enter the date your FFL expires")
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Enter the FFL expiry as a date")
     .refine((d) => !Number.isNaN(Date.parse(d)), "Enter a real date for the FFL expiry")
-    .optional(),
+    .refine((d) => d >= new Date().toISOString().slice(0, 10), "That FFL has expired. Renew it before requesting access."),
   // Every dealer needs a current SOT: number (usually the EIN it's registered under) and expiry.
   sotNumber: z
     .string()
@@ -169,7 +170,7 @@ export async function requestAccess(_: FormState, form: FormData): Promise<FormS
     phone: form.get("phone") || undefined,
     brandSlug: form.get("brandSlug"),
     fflNumber: form.get("fflNumber"),
-    fflExpires: form.get("fflExpires") || undefined,
+    fflExpires: form.get("fflExpires") ?? "",
     sotNumber: form.get("sotNumber") ?? "",
     sotExpires: form.get("sotExpires") ?? "",
     message: form.get("message") || undefined,
@@ -189,7 +190,9 @@ export async function requestAccess(_: FormState, form: FormData): Promise<FormS
     for (const [field, kind] of [["fflFile", "ffl"], ["sotFile", "sot"]] as const) {
       const file = await readLicenseFile(form.get(field), kind);
       if (typeof file === "string") return { error: file };
-      if (file) files.push(file);
+      // Both copies are required (see the request-access form).
+      if (!file) return { error: `Upload a copy of your ${kind === "ffl" ? "FFL" : "SOT"} (PDF, JPG, PNG or WebP, up to 2MB).` };
+      files.push(file);
     }
 
     const [created] = await db().insert(accessRequests).values({ ...r, fflExpires: r.fflExpires || null, sotNumber: r.sotNumber || null, sotExpires: r.sotExpires || null }).returning({ id: accessRequests.id });
