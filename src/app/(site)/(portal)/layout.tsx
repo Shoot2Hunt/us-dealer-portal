@@ -10,6 +10,7 @@ import { SiteFooter } from "@/components/site-footer";
 import { UserMenu } from "@/components/user-menu";
 import { PluginScripts, visibleApps } from "@/components/plugin-slots";
 import { getCustomPlugins } from "@/sanity/content";
+import { getInvoices } from "@/lib/invoices";
 
 /** Header link icons chosen in Sanity → Appearance → Header. Literal classes so Tailwind keeps them. */
 const NAV_ICON_CLASS: Record<string, string> = {
@@ -24,6 +25,7 @@ const NAV_ICON_CLASS: Record<string, string> = {
   info: "icon-[lucide--info]",
   mail: "icon-[lucide--mail]",
   percent: "icon-[lucide--badge-percent]",
+  wallet: "icon-[lucide--wallet]",
 };
 
 const DEFAULT_LINKS: NavItem[] = [
@@ -31,6 +33,7 @@ const DEFAULT_LINKS: NavItem[] = [
   { label: "Orders", href: "/orders", icon: "receipt" },
   { label: "Promotions", href: "/promotions", icon: "percent" },
 ];
+const BILLING_LINK: NavItem = { label: "Billing", href: "/billing", icon: "wallet" };
 
 function HeaderLink({ link }: { link: NavItem }) {
   const icon = link.icon && NAV_ICON_CLASS[link.icon];
@@ -52,7 +55,10 @@ function HeaderLink({ link }: { link: NavItem }) {
 
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
   const user = await requireSignedIn();
-  const [s, pages, header, plugins, customPlugins] = await Promise.all([getSiteSettings(), getNavPages(), getHeaderSettings(), getPluginSettings(), getCustomPlugins()]);
+  const [s, pages, header, plugins, customPlugins, billing] = await Promise.all([
+    getSiteSettings(), getNavPages(), getHeaderSettings(), getPluginSettings(), getCustomPlugins(),
+    getInvoices(user.id).catch(() => null),
+  ]);
   // Custom apps with their own page and a menu label (Studio → Settings → Custom plugins).
   const appLinks = visibleApps(customPlugins, user)
     .filter((p) => p.showAsPage && p.slug && p.menuLabel)
@@ -60,8 +66,12 @@ export default async function PortalLayout({ children }: { children: React.React
   const admin = isAdmin(user);
   const maintenance = plugins.maintenance;
   const blocked = maintenance.enabled && !admin;
+  // Billing is always in the menu for dealers, even with custom header links.
+  const baseLinks = header.links.length ? header.links : DEFAULT_LINKS;
+  const showBilling = !admin && !baseLinks.some((l) => l.href === BILLING_LINK.href);
   const links = [
-    ...(header.links.length ? header.links : DEFAULT_LINKS),
+    ...baseLinks,
+    ...(showBilling ? [BILLING_LINK] : []),
     ...(header.showPages ? pages.map((p) => ({ label: p.title, href: `/p/${p.slug}` })) : []),
     ...appLinks,
     ...(header.showContact ? [{ label: "Contact", href: "/contact", icon: "mail" }] : []),
@@ -87,7 +97,22 @@ export default async function PortalLayout({ children }: { children: React.React
             <span className="transition-colors group-hover:text-accent-light">{s.portalName ?? "Dealer Portal"}</span>
           </Link>
           <nav className="flex flex-1 flex-wrap items-center gap-5 text-sm">
-            {!blocked && links.map((l) => <HeaderLink key={`${l.href}-${l.label}`} link={l} />)}
+            {!blocked &&
+              links.map((l) =>
+                l.href === BILLING_LINK.href && billing && billing.pastDue > 0 ? (
+                  <span key="billing" className="relative inline-flex items-center">
+                    <HeaderLink link={l} />
+                    <span
+                      className="ml-1.5 animate-pop-in rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white"
+                      title={`${billing.pastDue.toFixed(2)} past due`}
+                    >
+                      Past due
+                    </span>
+                  </span>
+                ) : (
+                  <HeaderLink key={`${l.href}-${l.label}`} link={l} />
+                ),
+              )}
             {admin && (
               <NavLink href="/admin" className="nav-link font-medium text-gold! hover:text-gold!">
                 <span className="icon-[lucide--shield-check] h-4 w-4" aria-hidden="true" /> Admin

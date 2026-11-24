@@ -111,6 +111,20 @@ export function debitBank(amount: number, token: OpaqueData, ctx: TxContext, ref
   );
 }
 
+/** Card: authorize and capture in one step (invoice payments, where nothing needs rolling back). */
+export function chargeCard(amount: number, token: OpaqueData, ctx: TxContext, refId?: string) {
+  return createTransaction(
+    {
+      transactionType: "authCaptureTransaction",
+      amount: money(amount),
+      payment: { opaqueData: token },
+      order: { invoiceNumber: ctx.invoiceNumber.slice(0, 20), description: ctx.description.slice(0, 255) },
+      customer: { email: ctx.email },
+    },
+    refId,
+  );
+}
+
 export function captureAuthorized(transId: string, amount: number) {
   return createTransaction({ transactionType: "priorAuthCaptureTransaction", amount: money(amount), refTransId: transId });
 }
@@ -127,6 +141,15 @@ export async function getTransactionStatus(transId: string): Promise<string | nu
   } catch {
     return null;
   }
+}
+
+/** What the browser needs to load Accept.js and turn card/bank details into a token. */
+export function acceptJsConfig() {
+  return {
+    url: process.env.AUTHNET_ENV === "production" ? "https://js.authorize.net/v1/Accept.js" : "https://jstest.authorize.net/v1/Accept.js",
+    apiLoginId: process.env.NEXT_PUBLIC_AUTHNET_API_LOGIN_ID ?? "",
+    clientKey: process.env.NEXT_PUBLIC_AUTHNET_CLIENT_KEY ?? "",
+  };
 }
 
 // --- Setup / health check (Admin → Payments) ---

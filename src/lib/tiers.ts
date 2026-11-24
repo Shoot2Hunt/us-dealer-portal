@@ -33,10 +33,11 @@ export type TierStatus = {
 
 /**
  * "processing" is the portal's fully-paid status (card captured, eCheck settled
- * or check received). Unpaid, failed, cancelled and payment-problem orders don't count.
+ * or check received). Unpaid, failed, cancelled and payment-problem orders don't count,
+ * nor do orders shipped on terms until their invoice is paid.
  */
 const paidInWindow = () =>
-  and(eq(orders.status, "processing"), gte(orders.createdAt, new Date(Date.now() - TIER_WINDOW_DAYS * 864e5)));
+  and(eq(orders.status, "processing"), eq(orders.invoiceOpen, false), gte(orders.createdAt, new Date(Date.now() - TIER_WINDOW_DAYS * 864e5)));
 
 export function tierForSpend(spend: number): TierStatus {
   const tier = [...TIERS].reverse().find((t) => spend >= t.minSpend) ?? null;

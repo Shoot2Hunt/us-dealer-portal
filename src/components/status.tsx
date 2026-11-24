@@ -16,6 +16,8 @@ const PAYMENT: Record<string, string> = {
   declined: "Declined",
   voided: "Voided",
   returned: "Returned",
+  invoiced: "Invoiced, not yet paid",
+  superseded: "Paid another way",
 };
 
 export function OrderStatus({ status }: { status: string }) {
@@ -24,4 +26,4 @@ export function OrderStatus({ status }: { status: string }) {
 }
 
 export const paymentLabel = (s: string) => PAYMENT[s] ?? s;
-export const methodLabel = (m: string) => (m === "ach" ? "ACH" : m === "card" ? "Card" : "Check");
+export const methodLabel = (m: string) => (m === "ach" ? "ACH" : m === "card" ? "Card" : m === "terms" ? "Invoice" : "Check");

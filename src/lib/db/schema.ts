@@ -24,7 +24,12 @@ export const orderStatusEnum = pgEnum("order_status", [
   "failed",
   "cancelled",
 ]);
-export const paymentMethodEnum = pgEnum("payment_method", ["card", "ach", "check"]);
+export const paymentMethodEnum = pgEnum("payment_method", [
+  "card",
+  "ach",
+  "check",
+  "terms", // invoiced: the dealer pays later from the Billing page
+]);
 export const paymentStatusEnum = pgEnum("payment_status", [
   "authorized", // card, not yet captured
   "captured", // card, done
@@ -35,6 +40,8 @@ export const paymentStatusEnum = pgEnum("payment_status", [
   "declined",
   "voided",
   "returned", // eCheck returned
+  "invoiced", // terms: owed, not yet paid
+  "superseded", // a check or invoice amount that was paid another way (Billing page)
 ]);
 
 export type Address = {
@@ -95,6 +102,10 @@ export const users = pgTable("users", {
   authnetCustomerProfileId: text("authnet_customer_profile_id"),
   cardAddAttempts: integer("card_add_attempts").notNull().default(0),
   cardAddWindowStart: timestamp("card_add_window_start", { withTimezone: true }),
+  /** Net terms: days to pay an invoiced order (e.g. 30). Null = not approved for terms. */
+  paymentTermsDays: integer("payment_terms_days"),
+  /** Most the dealer may owe on terms at once. Null = no limit. */
+  creditLimit: numeric("credit_limit", { precision: 12, scale: 2 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -225,6 +236,13 @@ export const orders = pgTable("orders", {
   shippingAddress: jsonb("shipping_address").$type<Address>().notNull(),
   poNumber: text("po_number"),
   notes: text("notes"),
+  /** When an unpaid balance (check or terms) is due. Null = due on receipt. */
+  dueDate: date("due_date"),
+  /**
+   * Shipped on terms and not yet paid in full. These orders are "processing" (released to
+   * the brands) but still owe money, so they don't count toward volume tiers.
+   */
+  invoiceOpen: boolean("invoice_open").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

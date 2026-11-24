@@ -8,10 +8,13 @@ import type { PaymentSettings } from "@/sanity/content";
 import { useCart, usd } from "@/components/cart";
 import { loadAcceptJs, tokenize, type BankInput, type CardInput } from "@/lib/accept";
 
-type Method = "card" | "ach" | "check";
+type Method = "card" | "ach" | "check" | "terms";
+
+/** Net terms for this dealer (Admin → Dealers), from getTermsStatus. */
+export type CheckoutTerms = { days: number; dueLabel: string; available: boolean; reason?: string; creditAvailable: number | null } | null;
 type Part = { key: number; method: Method; amount: string; card: CardInput; bank: BankInput };
 
-const METHOD_LABEL: Record<Method, string> = { card: "Credit card", ach: "ACH (bank account)", check: "Mailed check" };
+const METHOD_LABEL: Record<Method, string> = { card: "Credit card", ach: "ACH (bank account)", check: "Mailed check", terms: "Invoice me" };
 const emptyCard: CardInput = { cardNumber: "", month: "", year: "", cardCode: "", zip: "" };
 const emptyBank: BankInput = { routingNumber: "", accountNumber: "", nameOnAccount: "", accountType: "businessChecking" };
 
@@ -20,8 +23,10 @@ export function CheckoutForm({
   defaultAddress,
   acceptJs,
   onlinePayments,
+  terms,
 }: {
   settings: PaymentSettings;
+  terms: CheckoutTerms;
   /** False when Authorize.net isn't configured: card and ACH are hidden. */
   onlinePayments: boolean;
   defaultAddress: Address;
@@ -29,8 +34,12 @@ export function CheckoutForm({
 }) {
   const cart = useCart();
   const router = useRouter();
-  const methods = (["card", "ach", "check"] as Method[]).filter(
-    (m) => (m === "card" && settings.enableCard && onlinePayments) || (m === "ach" && settings.enableAch && onlinePayments) || (m === "check" && settings.enableCheck),
+  const methods = (["terms", "card", "ach", "check"] as Method[]).filter(
+    (m) =>
+      (m === "terms" && terms?.available) ||
+      (m === "card" && settings.enableCard && onlinePayments) ||
+      (m === "ach" && settings.enableAch && onlinePayments) ||
+      (m === "check" && settings.enableCheck),
   );
   const canSplit = settings.allowSplit && settings.maxSplitParts > 1;
 
@@ -102,12 +111,12 @@ export function CheckoutForm({
     }
     setSubmitting(true);
     try {
-      if (plan.some((p) => p.method !== "check")) await loadAcceptJs(acceptJs.url);
+      if (plan.some((p) => p.method === "card" || p.method === "ach")) await loadAcceptJs(acceptJs.url);
       const payments = [];
       for (const p of plan) {
         const amount = Number(p.amount);
         if (!(amount > 0)) throw new Error("Each payment needs an amount.");
-        if (p.method === "check") payments.push({ method: p.method, amount });
+        if (p.method === "check" || p.method === "terms") payments.push({ method: p.method, amount });
         else {
           const token = await tokenize(acceptJs, p.method === "card" ? { card: p.card } : { bank: p.bank });
           payments.push({ method: p.method, amount, token });
@@ -195,6 +204,15 @@ export function CheckoutForm({
               Card and bank payments aren&apos;t available right now.{methods.length ? " You can still pay by check." : ""}
             </p>
           )}
+          {terms && !terms.available && terms.reason && (
+            <p className="flex items-start gap-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              <span className="icon-[lucide--file-clock] mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>
+                Invoicing is paused: {terms.reason}{" "}
+                <Link href="/billing" className="font-medium underline">Go to Billing</Link>
+              </span>
+            </p>
+          )}
           {methods.length === 0 && (
             <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">
               No payment methods are available at the moment, so orders can&apos;t be placed. Please contact us.
@@ -207,7 +225,7 @@ export function CheckoutForm({
                   <label className="label">{mode === "split" ? `Payment ${i + 1}` : "Pay with"}</label>
                   <select className="input" value={p.method} onChange={(e) => update(p.key, { method: e.target.value as Method })}>
                     {methods.map((m) => (
-                      <option key={m} value={m}>{METHOD_LABEL[m]}</option>
+                      <option key={m} value={m}>{m === "terms" && terms ? `Invoice me (Net ${terms.days})` : METHOD_LABEL[m]}</option>
                     ))}
                   </select>
                 </div>
@@ -242,6 +260,15 @@ export function CheckoutForm({
                     <option value="savings">Savings</option>
                   </select>
                   <p className="col-span-2 text-xs text-muted">Orders paid by ACH ship once the payment settles, usually a few business days.</p>
+                </div>
+              )}
+              {p.method === "terms" && terms && (
+                <div className="space-y-1 rounded bg-panel p-3 text-sm">
+                  <p className="flex items-center gap-1.5 font-medium">
+                    <span className="icon-[lucide--file-clock] h-4 w-4 text-accent" aria-hidden="true" /> Ships now — payment due {terms.dueLabel}.
+                  </p>
+                  <p className="text-muted">Pay in full or in parts any time from the Billing page.</p>
+                  {terms.creditAvailable !== null && <p className="text-muted">Available credit: <strong className="text-ink">{usd(terms.creditAvailable)}</strong></p>}
                 </div>
               )}
               {p.method === "check" && (

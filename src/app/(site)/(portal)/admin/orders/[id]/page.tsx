@@ -13,7 +13,10 @@ export default async function AdminOrderPage({ params }: PageProps<"/admin/order
   if (!detail) notFound();
   // Only show buttons the admin may use: checks are super-admin only; retries for their own brand.
   const isSuper = admin.role === "super_admin";
-  const checks = isSuper ? detail.payments.filter((p) => p.method === "check" && p.status === "awaiting_check") : [];
+  // Checks being waited on, and invoice amounts a dealer may pay by mailing a check.
+  const checks = isSuper
+    ? detail.payments.filter((p) => (p.method === "check" && p.status === "awaiting_check") || (p.method === "terms" && p.status === "invoiced"))
+    : [];
   const failed = detail.storeOrders.filter((s) => !s.wooOrderId && (isSuper || s.store === admin.brandSlug));
   return (
     <div className="space-y-4">
@@ -22,7 +25,7 @@ export default async function AdminOrderPage({ params }: PageProps<"/admin/order
           {checks.map((p) => (
             <form key={p.id} action={markCheckReceived}>
               <input type="hidden" name="paymentId" value={p.id} />
-              <button className="btn">Mark {usd(Number(p.amount))} check received</button>
+              <button className="btn">{p.method === "terms" ? `Invoice paid: mark ${usd(Number(p.amount))} check received` : `Mark ${usd(Number(p.amount))} check received`}</button>
             </form>
           ))}
           {failed.map((s) => (

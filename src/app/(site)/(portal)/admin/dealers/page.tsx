@@ -40,6 +40,16 @@ export default async function DealersPage() {
               <label className="block">FFL expires <input type="date" name="fflExpires" defaultValue={d.fflExpires ?? ""} className="input mt-1" /></label>
               <label className="flex items-center gap-2"><input type="checkbox" name="sotVerified" defaultChecked={d.sotVerified} /> SOT verified</label>
               <label className="block">SOT expires <input type="date" name="sotExpires" defaultValue={d.sotExpires ?? ""} className="input mt-1" /></label>
+              <div className="grid grid-cols-2 gap-2 border-t border-line pt-2">
+                <label className="block" title="Lets the dealer choose &quot;Invoice me&quot; at checkout. Blank = pay at checkout only.">
+                  Net terms (days)
+                  <input type="number" name="paymentTermsDays" min={1} max={180} step={1} placeholder="None" defaultValue={d.paymentTermsDays ?? ""} className="input mt-1" />
+                </label>
+                <label className="block" title="Most they can owe on invoices at once. Blank = no limit.">
+                  Credit limit ($)
+                  <input name="creditLimit" inputMode="decimal" placeholder="No limit" defaultValue={d.creditLimit ?? ""} className="input mt-1" />
+                </label>
+              </div>
             </div>
             <div className="space-y-1">
               <p className="font-medium">Brands (none checked = all)</p>

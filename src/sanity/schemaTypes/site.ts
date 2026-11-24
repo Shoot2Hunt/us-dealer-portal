@@ -27,6 +27,7 @@ export const NAV_ICONS = [
   { title: "Star", value: "star" },
   { title: "Info", value: "info" },
   { title: "Percent (promotions)", value: "percent" },
+  { title: "Wallet (billing)", value: "wallet" },
 ];
 
 const linkFields = [

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { accessRequests, db, licenseDocuments, orderLines, orders, payments, storeOrders, users, type User } from "@/lib/db";
 import { issueSetupToken, requireAdmin, signOutOtherSessions } from "@/lib/auth/session";
 import { CLEARED_TWO_FACTOR } from "@/lib/auth/two-factor";
@@ -89,7 +89,14 @@ export async function updateDealer(form: FormData) {
   const id = String(form.get("id"));
   if (!UUID.test(id)) return;
   const brands = form.getAll("allowedBrands").map(String).filter(isStoreKey);
+  // Net terms: whole days 1–180, credit limit in dollars. Blank = no terms / no limit.
+  const termsRaw = String(form.get("paymentTermsDays") ?? "").trim();
+  const termsDays = /^\d{1,3}$/.test(termsRaw) && Number(termsRaw) >= 1 && Number(termsRaw) <= 180 ? Number(termsRaw) : null;
+  const limitRaw = String(form.get("creditLimit") ?? "").replace(/[$,\s]/g, "");
+  const creditLimit = /^\d{1,9}(\.\d{1,2})?$/.test(limitRaw) ? Number(limitRaw).toFixed(2) : null;
   const changes = {
+    paymentTermsDays: termsDays,
+    creditLimit: termsDays === null ? null : creditLimit,
     status: form.get("status") === "suspended" ? ("suspended" as const) : ("active" as const),
     fflExpires: formDate(form.get("fflExpires")),
     sotVerified: form.get("sotVerified") === "on",
@@ -170,10 +177,16 @@ export async function markCheckReceived(form: FormData) {
   if (admin.role !== "super_admin") return;
   const paymentId = Number(form.get("paymentId"));
   if (!Number.isSafeInteger(paymentId)) return;
+  // A check for an order waiting on one, or a check mailed in for an invoice (net terms).
   const [p] = await db()
     .update(payments)
-    .set({ status: "received", updatedAt: new Date() })
-    .where(and(eq(payments.id, paymentId), eq(payments.method, "check"), eq(payments.status, "awaiting_check")))
+    .set({ method: "check", status: "received", updatedAt: new Date() })
+    .where(
+      and(
+        eq(payments.id, paymentId),
+        or(and(eq(payments.method, "check"), eq(payments.status, "awaiting_check")), and(eq(payments.method, "terms"), eq(payments.status, "invoiced"))),
+      ),
+    )
     .returning();
   if (p) {
     await audit(admin, "payment.check_received", `payment:${p.id}`, { orderId: p.orderId, amount: p.amount });

@@ -58,6 +58,8 @@ export type NewStoreOrder = {
   portalOrderNumber: number;
   poNumber?: string | null;
   paid: boolean;
+  /** Ship now although not paid yet (dealer on net terms). Goes to Processing, not marked paid. */
+  release?: boolean;
   paymentSummary: string;
   /** Portal discount code used on the order, if any (noted on the Woo order). */
   discountCode?: string;
@@ -75,7 +77,7 @@ export async function createWooOrder(o: NewStoreOrder): Promise<WooOrder> {
   const { data } = await woo<WooOrder>(store, "/orders", {
     method: "POST",
     body: {
-      status: o.paid ? "processing" : "on-hold",
+      status: o.paid || o.release ? "processing" : "on-hold",
       set_paid: o.paid,
       customer_id: customerId,
       payment_method: "dealer_portal",

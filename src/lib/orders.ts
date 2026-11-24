@@ -20,6 +20,7 @@ import { createWooOrder, setWooOrderStatus } from "@/lib/woo/orders";
 import { evaluateDiscount } from "@/lib/discounts";
 import { isStoreKey, storeName, type StoreKey } from "@/lib/woo/stores";
 import { appUrl, sendEmail } from "@/lib/email";
+import { addDays, balanceOf, formatDue, getTermsStatus, todayIso } from "@/lib/invoices";
 
 // Every field has an upper bound: these values go to WooCommerce and into emails.
 const addressSchema = z.object({
@@ -47,7 +48,7 @@ export const checkoutSchema = z.object({
   payments: z
     .array(
       z.object({
-        method: z.enum(["card", "ach", "check"]),
+        method: z.enum(["card", "ach", "check", "terms"]),
         amount: z.number().positive().max(10_000_000),
         token: opaque.optional(),
       }),
@@ -118,7 +119,19 @@ export async function placeOrder(user: User, input: CheckoutInput): Promise<Chec
   if (parts.length > 1 && !settings.allowSplit) return { ok: false, error: "Split payments are turned off." };
   if (parts.length > settings.maxSplitParts) return { ok: false, error: `Use at most ${settings.maxSplitParts} payment methods.` };
   const online = authnetConfig().ready;
+  const termsParts = parts.filter((p) => p.method === "terms");
+  if (termsParts.length > 1) return { ok: false, error: "Use \"Invoice me\" only once per order." };
+  const terms = termsParts.length ? await getTermsStatus(user, settings.enableTerms) : null;
+  if (terms) {
+    if (!terms.approved) return { ok: false, error: "Your account isn't set up for invoicing. Choose another payment method." };
+    if (!terms.available) return { ok: false, error: terms.reason ?? "Invoicing isn't available on your account right now." };
+    const amount = cents(termsParts[0].amount);
+    if (terms.creditLimit !== null && cents(terms.owed) + amount > cents(terms.creditLimit)) {
+      return { ok: false, error: `That would put you over your $${terms.creditLimit.toFixed(2)} credit limit ($${terms.owed.toFixed(2)} already owed). Pay part by card, ACH or check.` };
+    }
+  }
   for (const p of parts) {
+    if (p.method === "terms") continue;
     if (p.method !== "check" && !online) return { ok: false, error: "Card and bank payments aren't available right now. Please pay by check or contact us." };
     if (p.method === "card" && !settings.enableCard) return { ok: false, error: "Card payments are turned off." };
     if (p.method === "ach" && !settings.enableAch) return { ok: false, error: "ACH payments are turned off." };
@@ -129,13 +142,15 @@ export async function placeOrder(user: User, input: CheckoutInput): Promise<Chec
     return { ok: false, error: `Payments must add up to the order total of $${dollars(totalCents)}.` };
   }
 
-  // 4. Create the portal order.
+  // 4. Create the portal order. Anything left unpaid (terms or a mailed check) gets a due date
+  //    and shows on the dealer's Billing page.
   const address: Address = input.shipping;
+  const dueDate = terms?.approved ? terms.dueDate : parts.some((p) => p.method === "check") ? addDays(todayIso(), settings.checkDueDays) : null;
   const [order] = await db()
     .insert(orders)
     .values({
       userId: user.id, status: "awaiting_payment", total: dollars(totalCents), shippingAddress: address, poNumber: input.poNumber, notes: input.notes,
-      discountCode: discount?.code ?? null, discountTotal: dollars(discount?.cents ?? 0),
+      discountCode: discount?.code ?? null, discountTotal: dollars(discount?.cents ?? 0), dueDate,
     })
     .returning();
   await db().insert(orderLines).values(
@@ -145,7 +160,7 @@ export async function placeOrder(user: User, input: CheckoutInput): Promise<Chec
   // 5. Take payment. Cards are authorized first, then eChecks debited, then cards captured,
   //    so any decline can be rolled back before the dealer is charged.
   const txCtx = { invoiceNumber: `DP${order.number}`, description: `Dealer portal order #${order.number}`, email: user.email };
-  type Done = { method: "card" | "ach" | "check"; amount: number; transId?: string; last4?: string; status: (typeof payments.$inferInsert)["status"]; error?: string };
+  type Done = { method: "card" | "ach" | "check" | "terms"; amount: number; transId?: string; last4?: string; status: (typeof payments.$inferInsert)["status"]; error?: string };
   const done: Done[] = [];
   const rollback = async () => {
     // Void works on anything not yet settled, including captured cards.
@@ -178,24 +193,33 @@ export async function placeOrder(user: User, input: CheckoutInput): Promise<Chec
     d.status = "captured";
   }
   for (const p of parts.filter((x) => x.method === "check")) done.push({ method: "check", amount: p.amount, status: "awaiting_check" });
+  for (const p of termsParts) done.push({ method: "terms", amount: p.amount, status: "invoiced" });
 
   await db().insert(payments).values(
     done.map((d) => ({ orderId: order.id, method: d.method, amount: d.amount.toFixed(2), status: d.status, transId: d.transId, last4: d.last4, error: d.error })),
   );
   const fullyPaid = done.every((d) => d.status === "captured");
-  await db().update(orders).set({ status: fullyPaid ? "processing" : "awaiting_payment" }).where(eq(orders.id, order.id));
+  // Net terms ship now and are paid later; checks and eChecks wait until the money clears.
+  const shipNow = done.every((d) => d.status === "captured" || d.status === "invoiced");
+  await db()
+    .update(orders)
+    .set({ status: shipNow ? "processing" : "awaiting_payment", invoiceOpen: termsParts.length > 0 })
+    .where(eq(orders.id, order.id));
 
   // 6. One WooCommerce order per brand. Payment is already taken, so failures here are
   //    recorded for an admin to retry rather than shown as a failed checkout.
-  const summary = done.map((d) => `${d.method === "ach" ? "ACH" : d.method === "card" ? "Card" : "Check"} $${d.amount.toFixed(2)}${d.last4 ? ` (…${d.last4})` : ""}`).join(" + ");
+  const METHOD_NAME = { ach: "ACH", card: "Card", check: "Check", terms: "Invoice" } as const;
+  const summary = done
+    .map((d) => `${METHOD_NAME[d.method]} $${d.amount.toFixed(2)}${d.last4 ? ` (…${d.last4})` : ""}${d.method === "terms" && dueDate ? ` (Net ${user.paymentTermsDays}, due ${formatDue(dueDate)})` : ""}`)
+    .join(" + ");
   const byStore = Map.groupBy(lines, (l) => l.store);
   for (const [store, storeLines] of byStore) {
     // What this brand is owed: its lines after their share of any discount code.
     const subtotal = dollars(storeLines.reduce((s, l) => s + l.unitCents * l.quantity - l.discountCents, 0));
     try {
       const wooOrder = await createWooOrder({
-        storeKey: store, user, address, portalOrderId: order.id, portalOrderNumber: order.number, poNumber: input.poNumber, paid: fullyPaid,
-        paymentSummary: fullyPaid ? summary : `${summary} — waiting for payment to clear`,
+        storeKey: store, user, address, portalOrderId: order.id, portalOrderNumber: order.number, poNumber: input.poNumber, paid: fullyPaid, release: shipNow,
+        paymentSummary: shipNow ? (fullyPaid ? summary : `${summary} — OK to ship, dealer pays the invoice through the portal`) : `${summary} — waiting for payment to clear`,
         discountCode: discount?.code,
         lines: storeLines.map((l) => ({ productId: l.productId, variationId: l.variationId, quantity: l.quantity, unitPrice: dollars(l.unitCents), discount: dollars(l.discountCents) })),
       });
@@ -207,33 +231,47 @@ export async function placeOrder(user: User, input: CheckoutInput): Promise<Chec
     }
   }
 
-  await notifyOrderPlaced(user, order.id, order.number, dollars(totalCents), [...byStore.keys()], fullyPaid, ctx.brands);
+  const invoiceNote = termsParts.length && dueDate
+    ? ` $${termsParts[0].amount.toFixed(2)} is invoiced, due ${formatDue(dueDate)}. Pay any time on the Billing page: ${appUrl("/billing")}`
+    : shipNow ? "" : " It will ship once your payment clears.";
+  await notifyOrderPlaced(user, order.id, order.number, dollars(totalCents), [...byStore.keys()], invoiceNote, ctx.brands);
   return { ok: true, orderId: order.id };
 }
 
-async function notifyOrderPlaced(user: User, orderId: string, number: number, total: string, stores: string[], paid: boolean, brands: { storeKey: string; notificationEmails?: string[] }[]) {
+async function notifyOrderPlaced(user: User, orderId: string, number: number, total: string, stores: string[], note: string, brands: { storeKey: string; notificationEmails?: string[] }[]) {
   const link = appUrl(`/orders/${orderId}`);
   await sendEmail({
     kind: "order.confirmation",
     to: user.email,
     subject: `Order #${number} received`,
-    text: `Thanks — we received order #${number} for $${total}.${paid ? "" : " It will ship once your payment clears."}\n\n${link}`,
+    text: `Thanks — we received order #${number} for $${total}.${note}\n\n${link}`,
   });
   const brandEmails = brands.filter((b) => stores.includes(b.storeKey)).flatMap((b) => b.notificationEmails ?? []);
   await sendEmail({ kind: "order.brand_notice", to: brandEmails, subject: `New dealer order #${number} from ${user.company ?? user.name}`, text: appUrl(`/admin/orders/${orderId}`) });
 }
 
-/** When every payment on an order has cleared, release the brands' Woo orders to Processing. */
+/**
+ * Call after any payment on an order changes (taken, settled, check received). Closes a
+ * net-terms invoice once it's paid and cleared, and releases a held order to the brands
+ * (Woo → Processing) once nothing is left owing except an approved invoice amount.
+ */
 export async function releaseIfPaid(orderId: string) {
-  const ps = await db().select().from(payments).where(eq(payments.orderId, orderId));
-  const live = ps.filter((p) => !["declined", "voided"].includes(p.status));
-  if (!live.length || !live.every((p) => ["captured", "settled", "received"].includes(p.status))) return false;
   const [order] = await db().select().from(orders).where(eq(orders.id, orderId));
-  if (!order || order.status !== "awaiting_payment") return false;
+  if (!order) return false;
+  const ps = await db().select().from(payments).where(eq(payments.orderId, orderId));
+  const b = balanceOf(order, ps);
+  if (order.invoiceOpen && b.balance <= 0 && b.clearing <= 0) {
+    await db().update(orders).set({ invoiceOpen: false }).where(eq(orders.id, orderId));
+  }
+  // Checks still in the mail, eChecks still clearing or an unpaid return keep it on hold.
+  const unapproved = b.balance - b.invoiced;
+  if (unapproved > 0 || b.clearing > 0) return false;
+  if (order.status !== "awaiting_payment" && order.status !== "payment_problem") return false;
   await db().update(orders).set({ status: "processing" }).where(eq(orders.id, orderId));
   const sos = await db().select().from(storeOrders).where(eq(storeOrders.orderId, orderId));
   for (const so of sos) {
-    if (so.wooOrderId && isStoreKey(so.store)) {
+    // Only orders the portal put on hold: never move a shipped (completed) order back.
+    if (so.wooOrderId && isStoreKey(so.store) && (so.wooStatus === "on-hold" || so.wooStatus === "pending")) {
       await setWooOrderStatus(so.store, so.wooOrderId, "processing", "Dealer portal: payment cleared — OK to ship.");
       await db().update(storeOrders).set({ wooStatus: "processing", updatedAt: new Date() }).where(eq(storeOrders.id, so.id));
     }

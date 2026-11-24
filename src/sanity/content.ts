@@ -74,6 +74,10 @@ export type PaymentSettings = {
   enableCheck: boolean;
   allowSplit: boolean;
   maxSplitParts: number;
+  /** Dealers with payment terms may choose "Invoice me" at checkout. */
+  enableTerms: boolean;
+  /** Days after ordering that an unpaid check order becomes past due. */
+  checkDueDays: number;
   checkPayableTo?: string;
   checkMailingAddress?: string;
   checkoutNote?: string;
@@ -129,6 +133,8 @@ export async function getPaymentSettings(): Promise<PaymentSettings> {
     enableCheck: s?.enableCheck ?? true,
     allowSplit: s?.allowSplit ?? true,
     maxSplitParts: s?.maxSplitParts ?? 3,
+    enableTerms: s?.enableTerms ?? true,
+    checkDueDays: Math.min(120, Math.max(0, Math.round(Number(s?.checkDueDays ?? 14)) || 0)),
     checkPayableTo: s?.checkPayableTo,
     checkMailingAddress: s?.checkMailingAddress,
     checkoutNote: s?.checkoutNote,
