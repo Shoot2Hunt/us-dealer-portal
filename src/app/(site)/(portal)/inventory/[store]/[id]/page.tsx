@@ -6,7 +6,7 @@ import { requireUser } from "@/lib/auth/session";
 import { getProduct } from "@/lib/catalog";
 import { refreshProduct } from "@/lib/woo/sync";
 import { isStoreKey } from "@/lib/woo/stores";
-import { sanitizeProductHtml } from "@/lib/sanitize";
+import { descriptionExcerpt, sanitizeProductHtml } from "@/lib/sanitize";
 import { categoryLabel } from "../../filters";
 import { ProductView } from "./product-view";
 import { PluginEmbeds } from "@/components/plugin-slots";
@@ -68,22 +68,41 @@ export default async function ProductPage({ params, searchParams }: PageProps<"/
       </nav>
 
       <ProductView
-        product={{ ...rest, shortDescriptionHtml: sanitizeProductHtml(shortDescription) }}
+        product={{ ...rest, shortDescriptionHtml: sanitizeProductHtml(shortDescription), hasDescription: Boolean(description), descriptionExcerpt: descriptionExcerpt(description) }}
         initialVariantId={initial.id}
       />
 
-      {(description || product.specs.length > 0) && (
-        <div className="grid gap-8 lg:grid-cols-[1fr_22rem]">
-          {description ? (
-            <section className="card">
-              <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold">
-                <span className="icon-[lucide--file-text] h-5 w-5 text-accent" aria-hidden="true" /> Description
+      <div className={`grid gap-8 ${product.specs.length > 0 ? "lg:grid-cols-[1fr_22rem]" : ""}`}>
+          {/* Prominent on purpose: dealers were scrolling past a plain card. */}
+          <section id="description" className="scroll-mt-24 overflow-hidden rounded-xl border border-line bg-white shadow-md shadow-ink/5">
+            <div className="flex items-center justify-between gap-3 border-b-2 border-accent bg-linear-to-r from-ink via-ink-soft to-header-end px-6 py-4 text-white">
+              <h2 className="flex items-center gap-2.5 font-display text-xl font-bold tracking-tight">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent">
+                  <span className="icon-[lucide--file-text] h-4.5 w-4.5" aria-hidden="true" />
+                </span>
+                Product description
               </h2>
-              <div className="prose-content" dangerouslySetInnerHTML={{ __html: description }} />
-            </section>
-          ) : (
-            <div />
-          )}
+              <span className="hidden text-sm text-white/70 sm:block">From {product.brandName}</span>
+            </div>
+            <div className="px-6 py-6">
+            {description ? (
+              <div className="prose-content text-[15px] leading-relaxed" dangerouslySetInnerHTML={{ __html: description }} />
+            ) : (
+              <p className="text-sm text-muted">
+                {product.brandName} hasn&apos;t added a description for this product yet.
+                {product.productUrl && (
+                  <>
+                    {" "}
+                    <a href={product.productUrl} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
+                      See it on their website
+                    </a>
+                    .
+                  </>
+                )}
+              </p>
+            )}
+            </div>
+          </section>
           {product.specs.length > 0 && (
             <section className="card h-fit">
               <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold">
@@ -99,8 +118,7 @@ export default async function ProductPage({ params, searchParams }: PageProps<"/
               </dl>
             </section>
           )}
-        </div>
-      )}
+      </div>
 
       <PluginEmbeds slot="product" user={await requireUser()} />
 

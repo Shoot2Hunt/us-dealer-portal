@@ -4,10 +4,10 @@ import { z } from "zod";
 import { db, loginThrottle, orders, payments, type Order, type Payment, type User } from "@/lib/db";
 import { authnetConfig, chargeCard, debitBank, type OpaqueData } from "@/lib/authnet";
 import { getPaymentSettings } from "@/sanity/content";
-import { releaseIfPaid } from "@/lib/orders";
+import { cardholderSchema, releaseIfPaid } from "@/lib/orders";
 import { adminNotifyEmails, appUrl, sendEmail } from "@/lib/email";
 import { reportError } from "@/lib/errors";
-import { billingAddressFor, billingRecipients } from "@/lib/billing";
+import { billingAddressFor, billingRecipients, cardBillTo, shippingOnFile } from "@/lib/billing";
 
 /*
  * Invoices are portal orders that still owe money:
@@ -187,6 +187,8 @@ export const payInvoicesSchema = z.object({
   amount: z.number().positive().max(10_000_000),
   method: z.enum(["card", "ach"]),
   token: z.object({ dataDescriptor: z.string().max(100), dataValue: z.string().max(4000) }),
+  /** Card payments: the name on the card and its address. */
+  cardholder: cardholderSchema.optional(),
 });
 export type PayInvoicesInput = z.infer<typeof payInvoicesSchema>;
 export type PayInvoicesResult = { ok: true; amount: number; clearing: boolean; orders: number[] } | { ok: false; error: string };
@@ -217,6 +219,7 @@ export async function payInvoices(user: User, input: PayInvoicesInput): Promise<
   if (!authnetConfig().ready) return { ok: false, error: "Online payments aren't available right now. Please pay by check or contact us." };
   if (input.method === "card" && !settings.enableCard) return { ok: false, error: "Card payments are turned off." };
   if (input.method === "ach" && !settings.enableAch) return { ok: false, error: "ACH payments are turned off." };
+  if (input.method === "card" && !input.cardholder) return { ok: false, error: "Enter the name on the card and the card's address." };
 
   const result = await withPaymentLock(user.id, async (): Promise<PayInvoicesResult> => {
     // Balances are worked out again here: the page the dealer paid from may be out of date.
@@ -244,7 +247,8 @@ export async function payInvoices(user: User, input: PayInvoicesInput): Promise<
       invoiceNumber: numbers.length === 1 ? `DP${numbers[0]}` : `DPPAY${Date.now().toString(36).toUpperCase()}`,
       description: `Dealer portal invoice payment: ${numbers.map((n) => `#${n}`).join(", ")}`,
       email: user.billingEmail ?? user.email,
-      billTo: billingAddressFor(user),
+      billTo: input.method === "card" ? cardBillTo(user, input.cardholder) : billingAddressFor(user),
+      shipTo: shippingOnFile(user),
     };
     const token = input.token as OpaqueData;
     const tx = input.method === "card" ? await chargeCard(amountCents / 100, token, ctx, user.id.replace(/-/g, "")) : await debitBank(amountCents / 100, token, ctx, user.id.replace(/-/g, ""));

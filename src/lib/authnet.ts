@@ -81,26 +81,35 @@ type TxContext = {
   invoiceNumber: string;
   description: string;
   email: string;
-  /** The dealer's billing address (Billing page), for the card's address check (AVS). */
-  billTo?: { firstName: string; lastName: string; company?: string; address1: string; address2?: string; city: string; state: string; postcode: string; phone?: string } | null;
+  /** Name on the card and the card's address (for the address check, AVS). */
+  billTo?: TxAddress | null;
+  /** Where the order ships (checkout) or the dealer's shipping address on file (invoices). */
+  shipTo?: TxAddress | null;
 };
+type TxAddress = { firstName: string; lastName: string; company?: string; address1: string; address2?: string; city: string; state: string; postcode: string; phone?: string };
 
-/** Authorize.net's billTo, trimmed to its field lengths. Comes after "customer" in key order. */
-function billTo(ctx: TxContext) {
-  const a = ctx.billTo;
-  if (!a) return {};
+function txAddress(a: TxAddress, phone: boolean) {
   return {
-    billTo: {
-      firstName: a.firstName.slice(0, 50),
-      lastName: a.lastName.slice(0, 50),
-      ...(a.company ? { company: a.company.slice(0, 50) } : {}),
-      address: [a.address1, a.address2].filter(Boolean).join(", ").slice(0, 60),
-      city: a.city.slice(0, 40),
-      state: a.state.slice(0, 40),
-      zip: a.postcode.slice(0, 20),
-      country: "US",
-      ...(a.phone ? { phoneNumber: a.phone.slice(0, 25) } : {}),
-    },
+    firstName: a.firstName.slice(0, 50),
+    lastName: a.lastName.slice(0, 50),
+    ...(a.company ? { company: a.company.slice(0, 50) } : {}),
+    address: [a.address1, a.address2].filter(Boolean).join(", ").slice(0, 60),
+    city: a.city.slice(0, 40),
+    state: a.state.slice(0, 40),
+    zip: a.postcode.slice(0, 20),
+    country: "US",
+    ...(phone && a.phone ? { phoneNumber: a.phone.slice(0, 25) } : {}),
+  };
+}
+
+/**
+ * Authorize.net's billTo and shipTo, trimmed to its field lengths. Key order matters to
+ * Authorize.net: these come after "customer", billTo before shipTo (shipTo has no phone).
+ */
+function billTo(ctx: TxContext) {
+  return {
+    ...(ctx.billTo ? { billTo: txAddress(ctx.billTo, true) } : {}),
+    ...(ctx.shipTo ? { shipTo: txAddress(ctx.shipTo, false) } : {}),
   };
 }
 

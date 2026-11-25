@@ -22,7 +22,7 @@ import { evaluateDiscount } from "@/lib/discounts";
 import { isStoreKey, storeName, type StoreKey } from "@/lib/woo/stores";
 import { adminNotifyEmails, appUrl, sendEmail } from "@/lib/email";
 import { addDays, balanceOf, formatDue, getTermsStatus, todayIso } from "@/lib/invoices";
-import { billingAddressFor, billingRecipients } from "@/lib/billing";
+import { billingAddressFor, billingRecipients, cardBillTo } from "@/lib/billing";
 
 // Every field has an upper bound: these values go to WooCommerce and into emails.
 export const addressSchema = z.object({
@@ -36,6 +36,18 @@ export const addressSchema = z.object({
   postcode: z.string().trim().regex(/^[0-9]{5}(-[0-9]{4})?$/, "Enter a 5-digit ZIP code"),
   phone: phoneField,
 });
+
+/** Name on the card and the card's address, from the card form. */
+export const cardholderSchema = z.object({
+  firstName: z.string().trim().min(1, "Enter the name on the card").max(50),
+  lastName: z.string().trim().min(1, "Enter the name on the card").max(50),
+  address1: z.string().trim().min(1, "Enter the card's address").max(60),
+  address2: z.string().trim().max(60).optional(),
+  city: z.string().trim().min(1, "Enter the card's city").max(40),
+  state: z.string().trim().regex(/^[A-Za-z]{2}$/, "Use the 2-letter state code for the card's address").transform((s) => s.toUpperCase()),
+  postcode: z.string().trim().regex(/^[0-9]{5}(-[0-9]{4})?$/, "Enter the card's 5-digit ZIP code"),
+});
+export type CardholderInput = z.infer<typeof cardholderSchema>;
 
 const opaque = z.object({ dataDescriptor: z.string().max(100), dataValue: z.string().max(4000) });
 
@@ -53,6 +65,8 @@ export const checkoutSchema = z.object({
         method: z.enum(["card", "ach", "check", "terms"]),
         amount: z.number().positive().max(10_000_000),
         token: opaque.optional(),
+        /** Card payments: the name on the card and its address. */
+        cardholder: cardholderSchema.optional(),
       }),
     )
     .min(1)
@@ -136,6 +150,7 @@ export async function placeOrder(user: User, input: CheckoutInput): Promise<Chec
     if (p.method === "terms") continue;
     if (p.method !== "check" && !online) return { ok: false, error: "Card and bank payments aren't available right now. Please pay by check or contact us." };
     if (p.method === "card" && !settings.enableCard) return { ok: false, error: "Card payments are turned off." };
+    if (p.method === "card" && !p.cardholder) return { ok: false, error: "Enter the name on the card and the card's address." };
     if (p.method === "ach" && !settings.enableAch) return { ok: false, error: "ACH payments are turned off." };
     if (p.method === "check" && !settings.enableCheck) return { ok: false, error: "Check payments are turned off." };
     if (p.method !== "check" && !p.token) return { ok: false, error: "Payment details are missing." };
@@ -161,7 +176,7 @@ export async function placeOrder(user: User, input: CheckoutInput): Promise<Chec
 
   // 5. Take payment. Cards are authorized first, then eChecks debited, then cards captured,
   //    so any decline can be rolled back before the dealer is charged.
-  const txCtx = { invoiceNumber: `DP${order.number}`, description: `Dealer portal order #${order.number}`, email: user.billingEmail ?? user.email, billTo: billingAddressFor(user) };
+  const txCtx = { invoiceNumber: `DP${order.number}`, description: `Dealer portal order #${order.number}`, email: user.billingEmail ?? user.email, billTo: billingAddressFor(user), shipTo: address };
   type Done = { method: "card" | "ach" | "check" | "terms"; amount: number; transId?: string; last4?: string; status: (typeof payments.$inferInsert)["status"]; error?: string };
   const done: Done[] = [];
   const rollback = async () => {
@@ -180,7 +195,7 @@ export async function placeOrder(user: User, input: CheckoutInput): Promise<Chec
   };
 
   for (const p of parts.filter((x) => x.method === "card")) {
-    const r = await authorizeCard(p.amount, p.token as OpaqueData, txCtx, order.id.replace(/-/g, ""));
+    const r = await authorizeCard(p.amount, p.token as OpaqueData, { ...txCtx, billTo: cardBillTo(user, p.cardholder) }, order.id.replace(/-/g, ""));
     if (!r.ok) return fail(`Card declined: ${r.error}`, { method: "card", amount: p.amount, status: "declined", transId: r.transId, error: r.error });
     done.push({ method: "card", amount: p.amount, transId: r.transId, last4: r.last4, status: "authorized", error: r.heldForReview ? "Held for review in Authorize.net" : undefined });
   }

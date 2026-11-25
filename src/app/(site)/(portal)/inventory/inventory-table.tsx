@@ -102,21 +102,6 @@ export function InventoryTable({ initial, savedView }: { initial: Data; savedVie
         <button className="btn-ghost md:hidden" onClick={() => setShowFilters((s) => !s)} aria-expanded={showFilters}>
           Filters{chips.length ? ` (${chips.length})` : ""}
         </button>
-        <div className="flex rounded-md border border-line bg-white p-0.5" role="group" aria-label="Layout">
-          {([["grid", "icon-[lucide--layout-grid]", "Grid"], ["list", "icon-[lucide--list]", "List"]] as const).map(([v, icon, label]) => (
-            <button
-              key={v}
-              type="button"
-              onClick={() => setView(v)}
-              aria-pressed={filters.view === v}
-              title={`${label} view`}
-              className={`flex items-center gap-1.5 rounded px-2.5 py-1.5 text-sm transition-colors ${filters.view === v ? "bg-ink text-white" : "text-muted hover:bg-panel hover:text-ink"}`}
-            >
-              <span className={`${icon} h-4 w-4`} aria-hidden="true" />
-              <span className="hidden sm:inline">{label}</span>
-            </button>
-          ))}
-        </div>
         <label className="flex items-center gap-2 text-sm">
           <span className="text-muted">Sort by</span>
           <select className="input w-auto" value={filters.sort} onChange={(e) => update({ sort: e.target.value as Filters["sort"] })}>
@@ -164,7 +149,8 @@ export function InventoryTable({ initial, savedView }: { initial: Data; savedVie
 
         {/* Results */}
         <div className="min-w-0 space-y-3">
-          <div className="flex flex-wrap items-center gap-2 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
             <span className="text-muted">
               {results.length ? `Showing ${(start + 1).toLocaleString()}–${(start + shown.length).toLocaleString()} of ${results.length.toLocaleString()}` : "0 results"}
               {results.length !== items.length && ` (filtered from ${items.length.toLocaleString()})`}
@@ -175,6 +161,22 @@ export function InventoryTable({ initial, savedView }: { initial: Data; savedVie
               </button>
             ))}
             {chips.length > 1 && <button onClick={clearAll} className="text-xs text-accent hover:underline">Clear all</button>}
+            </div>
+            <div className="ml-auto flex shrink-0 rounded-md border border-line bg-white p-0.5" role="group" aria-label="Layout">
+              {([["grid", "icon-[lucide--layout-grid]", "Grid"], ["list", "icon-[lucide--list]", "List"]] as const).map(([v, icon, label]) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setView(v)}
+                  aria-pressed={filters.view === v}
+                  title={`${label} view`}
+                  className={`flex items-center gap-1.5 rounded px-2.5 py-1.5 text-sm transition-colors ${filters.view === v ? "bg-ink text-white" : "text-muted hover:bg-panel hover:text-ink"}`}
+                >
+                  <span className={`${icon} h-4 w-4`} aria-hidden="true" />
+                  <span className="hidden sm:inline">{label}</span>
+                </button>
+              ))}
+            </div>
           </div>
 
           {filters.view === "grid" ? (
@@ -398,7 +400,10 @@ function Row({ item }: { item: CatalogItem }) {
         )}
       </td>
       <td className="px-3 py-2">
-        {orderable && <AddToCart item={item} />}
+        <div className="flex items-center justify-end gap-2">
+          <ViewDetails href={href} compact />
+          {orderable && <AddToCart item={item} />}
+        </div>
       </td>
     </tr>
   );
@@ -510,7 +515,35 @@ function Card({ item }: { item: CatalogItem }) {
         ) : null}
       </div>
       {item.restriction && <p className="mt-1 text-xs text-red-700">{item.restriction}</p>}
-      {orderable && <AddToCart item={item} className="mt-3" />}
+      <div className="mt-auto space-y-2 pt-3">
+        {orderable && <AddToCart item={item} className="[&>button]:flex-1" />}
+        <ViewDetails href={href} />
+      </div>
     </article>
+  );
+}
+
+/** Opens the product page. Compact = icon + "Details" for the list's action column. */
+function ViewDetails({ href, compact = false }: { href: string; compact?: boolean }) {
+  return (
+    <Link
+      href={href}
+      transitionTypes={["nav-forward"]}
+      className={`btn-ghost group/details inline-flex items-center justify-center gap-1.5 whitespace-nowrap hover:border-accent hover:text-accent ${compact ? "" : "w-full"}`}
+      title="View details"
+    >
+      <span className="icon-[lucide--eye] h-4 w-4" aria-hidden="true" />
+      {compact ? (
+        <>
+          <span className="hidden lg:inline">Details</span>
+          <span className="sr-only lg:hidden">View details</span>
+        </>
+      ) : (
+        <>
+          View details
+          <span className="icon-[lucide--arrow-right] h-4 w-4 transition-transform group-hover/details:translate-x-0.5" aria-hidden="true" />
+        </>
+      )}
+    </Link>
   );
 }

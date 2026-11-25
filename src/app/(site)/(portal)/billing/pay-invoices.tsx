@@ -1,10 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { usd } from "@/components/cart";
-import { loadAcceptJs, tokenize, type BankInput, type CardInput } from "@/lib/accept";
+import { loadAcceptJs, tokenize, type BankInput } from "@/lib/accept";
+import { CardFields, cardholderOf, emptyCardForm } from "@/components/card-fields";
+import type { Address } from "@/lib/db/schema";
 
 export type InvoiceRow = {
   orderId: string;
@@ -22,7 +24,6 @@ export type InvoiceRow = {
 };
 
 type Method = "card" | "ach";
-const emptyCard: CardInput = { cardNumber: "", month: "", year: "", cardCode: "", zip: "" };
 const emptyBank: BankInput = { routingNumber: "", accountNumber: "", nameOnAccount: "", accountType: "businessChecking" };
 const toCents = (n: number) => Math.round(n * 100);
 
@@ -33,7 +34,13 @@ export function PayInvoices({
   preferred,
   acceptJs,
   check,
+  shippingAddress,
+  billingAddress,
 }: {
+  /** Shipping address on file, for "Billing address is same as shipping". */
+  shippingAddress: Address | null;
+  /** A saved billing address that differs from shipping: pre-fills the billing fields. */
+  billingAddress: Address | null;
   invoices: InvoiceRow[];
   /** Online methods that are switched on. Empty = pay by check only. */
   methods: readonly Method[];
@@ -54,11 +61,19 @@ export function PayInvoices({
   const [mode, setMode] = useState<"full" | "partial">("full");
   const [partial, setPartial] = useState("");
   const [method, setMethod] = useState<Method>(preferred && methods.includes(preferred) ? preferred : (methods[0] ?? "card"));
+  const nameFrom = billingAddress ?? shippingAddress;
+  // Starts unchecked when there's a different billing address saved, or no shipping address to use.
+  const emptyCard = { ...emptyCardForm(nameFrom ? `${nameFrom.firstName} ${nameFrom.lastName}`.trim() : "", billingAddress), same: Boolean(shippingAddress) && !billingAddress };
   const [card, setCard] = useState(emptyCard);
   const [bank, setBank] = useState(emptyBank);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // Load Accept.js up front, so it is ready by the time they pay.
+  useEffect(() => {
+    if (methods.length) loadAcceptJs(acceptJs.url).catch(() => {});
+  }, [methods.length, acceptJs.url]);
 
   const selectedTotal = useMemo(
     () => payable.filter((i) => selected.has(i.orderId)).reduce((s, i) => s + toCents(i.balance), 0) / 100,
@@ -89,11 +104,12 @@ export function PayInvoices({
     setSubmitting(true);
     try {
       await loadAcceptJs(acceptJs.url);
-      const token = await tokenize(acceptJs, method === "card" ? { card } : { bank });
+      const forCard = method === "card" ? cardholderOf(card, shippingAddress) : null;
+      const token = await tokenize(acceptJs, forCard ? { card: forCard.card } : { bank });
       const res = await fetch("/api/invoices/pay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderIds: [...selected], amount, method, token }),
+        body: JSON.stringify({ orderIds: [...selected], amount, method, token, cardholder: forCard?.holder }),
       });
       const r = await res.json();
       if (!r.ok) throw new Error(r.error ?? "The payment didn't go through.");
@@ -257,13 +273,7 @@ export function PayInvoices({
               </div>
             )}
             {method === "card" ? (
-              <div className="grid grid-cols-6 gap-2">
-                <input className="input col-span-6" placeholder="Card number" autoComplete="cc-number" inputMode="numeric" value={card.cardNumber} onChange={(e) => setCard({ ...card, cardNumber: e.target.value })} required />
-                <input className="input col-span-1 px-2" placeholder="MM" autoComplete="cc-exp-month" value={card.month} onChange={(e) => setCard({ ...card, month: e.target.value })} required />
-                <input className="input col-span-1 px-2" placeholder="YY" autoComplete="cc-exp-year" value={card.year} onChange={(e) => setCard({ ...card, year: e.target.value })} required />
-                <input className="input col-span-2" placeholder="CVV" autoComplete="cc-csc" value={card.cardCode} onChange={(e) => setCard({ ...card, cardCode: e.target.value })} required />
-                <input className="input col-span-2" placeholder="ZIP" autoComplete="postal-code" value={card.zip} onChange={(e) => setCard({ ...card, zip: e.target.value })} />
-              </div>
+              <CardFields idPrefix="invoice-card" value={card} onChange={setCard} sameAs={shippingAddress} />
             ) : (
               <div className="grid grid-cols-2 gap-2">
                 <input className="input col-span-2" placeholder="Name on account" value={bank.nameOnAccount} onChange={(e) => setBank({ ...bank, nameOnAccount: e.target.value })} required />

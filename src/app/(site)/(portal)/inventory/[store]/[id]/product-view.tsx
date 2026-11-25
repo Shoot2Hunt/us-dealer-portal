@@ -5,7 +5,7 @@ import type { ProductDetail, ProductVariant } from "@/lib/catalog";
 import { flyToCart, useCart, usd } from "@/components/cart";
 
 type Props = {
-  product: Omit<ProductDetail, "description" | "shortDescription"> & { shortDescriptionHtml: string | null };
+  product: Omit<ProductDetail, "description" | "shortDescription"> & { shortDescriptionHtml: string | null; hasDescription: boolean; descriptionExcerpt: string | null };
   initialVariantId: number;
 };
 
@@ -82,6 +82,20 @@ export function ProductView({ product, initialVariantId }: Props) {
 
         {product.shortDescriptionHtml && (
           <div className="prose-content border-t border-line pt-5" dangerouslySetInnerHTML={{ __html: product.shortDescriptionHtml }} />
+        )}
+
+        {product.hasDescription && (
+          // The start of the description right by the price, so it can't be missed.
+          <div className="rounded-lg border-l-4 border-accent bg-accent-soft/50 px-4 py-3">
+            <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-accent-dark">
+              <span className="icon-[lucide--file-text] h-3.5 w-3.5" aria-hidden="true" /> About this product
+            </p>
+            {product.descriptionExcerpt && !product.shortDescriptionHtml && <p className="text-sm leading-relaxed text-ink">{product.descriptionExcerpt}</p>}
+            <a href="#description" className="group mt-2 inline-flex items-center gap-1 text-sm font-semibold text-accent hover:underline">
+              Read the full description
+              <span className="icon-[lucide--arrow-down] h-4 w-4 transition-transform group-hover:translate-y-0.5" aria-hidden="true" />
+            </a>
+          </div>
         )}
 
         {product.productUrl && (

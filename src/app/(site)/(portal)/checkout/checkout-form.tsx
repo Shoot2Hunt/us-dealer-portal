@@ -1,22 +1,22 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { Address } from "@/lib/db/schema";
 import type { PaymentSettings } from "@/sanity/content";
 import { useCart, usd } from "@/components/cart";
 import { PhoneInput } from "@/components/phone-input";
-import { loadAcceptJs, tokenize, type BankInput, type CardInput } from "@/lib/accept";
+import { loadAcceptJs, tokenize, type BankInput } from "@/lib/accept";
+import { CardFields, cardholderOf, emptyCardForm, type CardForm } from "@/components/card-fields";
 
 type Method = "card" | "ach" | "check" | "terms";
 
 /** Net terms for this dealer (Admin → Dealers), from getTermsStatus. */
 export type CheckoutTerms = { days: number; dueLabel: string; available: boolean; reason?: string; creditAvailable: number | null } | null;
-type Part = { key: number; method: Method; amount: string; card: CardInput; bank: BankInput };
+type Part = { key: number; method: Method; amount: string; card: CardForm; bank: BankInput };
 
 const METHOD_LABEL: Record<Method, string> = { card: "Credit card", ach: "ACH (bank account)", check: "Mailed check", terms: "Invoice me" };
-const emptyCard: CardInput = { cardNumber: "", month: "", year: "", cardCode: "", zip: "" };
 const emptyBank: BankInput = { routingNumber: "", accountNumber: "", nameOnAccount: "", accountType: "businessChecking" };
 
 export function CheckoutForm({
@@ -48,11 +48,18 @@ export function CheckoutForm({
   const canSplit = settings.allowSplit && settings.maxSplitParts > 1;
 
   const [address, setAddress] = useState<Address>(defaultAddress);
+  const emptyCard = emptyCardForm(`${defaultAddress.firstName} ${defaultAddress.lastName}`.trim());
   const [poNumber, setPoNumber] = useState("");
   const [mode, setMode] = useState<"single" | "split">("single");
   const [parts, setParts] = useState<Part[]>([{ key: 1, method: preferred && methods.includes(preferred) ? preferred : (methods[0] ?? "card"), amount: "", card: emptyCard, bank: emptyBank }]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // Load Accept.js as soon as card or ACH is picked, so it is ready by the time they pay.
+  const needsAccept = parts.some((p) => p.method === "card" || p.method === "ach");
+  useEffect(() => {
+    if (needsAccept) loadAcceptJs(acceptJs.url).catch(() => {});
+  }, [needsAccept, acceptJs.url]);
 
   // Discount code. A code applied to a different cart (items or quantities changed) is set
   // aside until the dealer applies it again, so the total shown is never out of date.
@@ -122,8 +129,14 @@ export function CheckoutForm({
         if (!(amount > 0)) throw new Error("Each payment needs an amount.");
         if (p.method === "check" || p.method === "terms") payments.push({ method: p.method, amount });
         else {
-          const token = await tokenize(acceptJs, p.method === "card" ? { card: p.card } : { bank: p.bank });
-          payments.push({ method: p.method, amount, token });
+          if (p.method === "card") {
+            const { holder, card } = cardholderOf(p.card, address);
+            const token = await tokenize(acceptJs, { card });
+            payments.push({ method: p.method, amount, token, cardholder: holder });
+          } else {
+            const token = await tokenize(acceptJs, { bank: p.bank });
+            payments.push({ method: p.method, amount, token });
+          }
         }
       }
       const res = await fetch("/api/checkout", {
@@ -248,13 +261,7 @@ export function CheckoutForm({
               </div>
 
               {p.method === "card" && (
-                <div className="grid grid-cols-6 gap-3">
-                  <input className="input col-span-6" placeholder="Card number" autoComplete="cc-number" inputMode="numeric" value={p.card.cardNumber} onChange={(e) => update(p.key, { card: { ...p.card, cardNumber: e.target.value } })} required />
-                  <input className="input col-span-1" placeholder="MM" autoComplete="cc-exp-month" value={p.card.month} onChange={(e) => update(p.key, { card: { ...p.card, month: e.target.value } })} required />
-                  <input className="input col-span-1" placeholder="YY" autoComplete="cc-exp-year" value={p.card.year} onChange={(e) => update(p.key, { card: { ...p.card, year: e.target.value } })} required />
-                  <input className="input col-span-2" placeholder="CVV" autoComplete="cc-csc" value={p.card.cardCode} onChange={(e) => update(p.key, { card: { ...p.card, cardCode: e.target.value } })} required />
-                  <input className="input col-span-2" placeholder="Billing ZIP" autoComplete="postal-code" value={p.card.zip} onChange={(e) => update(p.key, { card: { ...p.card, zip: e.target.value } })} />
-                </div>
+                <CardFields idPrefix={`card-${p.key}`} value={p.card} onChange={(card) => update(p.key, { card })} sameAs={address} />
               )}
               {p.method === "ach" && (
                 <div className="grid grid-cols-2 gap-3">

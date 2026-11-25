@@ -7,6 +7,7 @@ import { usd } from "@/components/cart";
 import { PayInvoices, type InvoiceRow } from "./pay-invoices";
 import { BillingDetails } from "./billing-details";
 import { addressSchema } from "@/lib/orders";
+import type { Address } from "@/lib/db/schema";
 import { PAYMENT_METHOD_LABEL, type PaymentMethod } from "@/lib/billing";
 
 export const metadata: Metadata = { title: "Billing" };
@@ -86,6 +87,8 @@ export default async function BillingPage({ searchParams }: PageProps<"/billing"
           preselect={pay}
           preferred={user.preferredPaymentMethod === "card" || user.preferredPaymentMethod === "ach" ? user.preferredPaymentMethod : undefined}
           acceptJs={acceptJsConfig()}
+          shippingAddress={shipping.success ? shipping.data : null}
+          billingAddress={savedBilling.success && !sameAddress(savedBilling.data, shipping.success ? shipping.data : null) ? savedBilling.data : null}
           check={settings.enableCheck ? { payableTo: settings.checkPayableTo, address: settings.checkMailingAddress } : null}
         />
       )}
@@ -118,4 +121,11 @@ function Stat({ label, value, icon, tone, note }: { label: string; value: number
       <p className="mt-1 text-xs opacity-75">{note}</p>
     </div>
   );
+}
+
+/** Same street address (names and phone aside)? */
+function sameAddress(a: Address, b: Address | null) {
+  if (!b) return false;
+  const k = (x: Address) => [x.address1, x.address2 ?? "", x.city, x.state, x.postcode].map((v) => v.trim().toLowerCase()).join("|");
+  return k(a) === k(b);
 }
