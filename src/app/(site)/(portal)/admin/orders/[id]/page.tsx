@@ -4,7 +4,7 @@ import { getOrderForUser } from "@/lib/orders";
 import { OrderDetail } from "@/components/order-detail";
 import { storeName } from "@/lib/woo/stores";
 import { markCheckReceived, retryStoreOrder } from "../../actions";
-import { usd } from "@/components/cart";
+import { usd } from "@/lib/money";
 
 export default async function AdminOrderPage({ params }: PageProps<"/admin/orders/[id]">) {
   const { id } = await params;

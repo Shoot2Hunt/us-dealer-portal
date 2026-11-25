@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useRef } from "react";
-import { useCart, usd } from "./cart";
+import { useCart } from "./cart";
+import { usd } from "@/lib/money";
 
 /** Flyout cart that slides in from the right. Always mounted so it can animate both ways. */
 export function CartDrawer() {

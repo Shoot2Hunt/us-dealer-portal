@@ -1,7 +1,7 @@
 import type { getOrderForUser } from "@/lib/orders";
 import { storeName } from "@/lib/woo/stores";
 import { OrderStatus, methodLabel, paymentLabel } from "./status";
-import { usd } from "./cart";
+import { usd } from "@/lib/money";
 import Link from "next/link";
 import { balanceOf, formatDue, todayIso } from "@/lib/invoices";
 

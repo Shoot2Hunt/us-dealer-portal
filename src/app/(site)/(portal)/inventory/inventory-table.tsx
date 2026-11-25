@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import type { CatalogItem } from "@/lib/catalog";
-import { flyToCart, useCart, usd } from "@/components/cart";
+import { flyToCart, useCart } from "@/components/cart";
+import { usd } from "@/lib/money";
 import {
   applyFilters, categoryLabel, countBy, DEFAULT_FILTERS, DEFAULT_PAGE_SIZE, filtersFromParams, filtersToQuery, pageList,
   SORT_OPTIONS, sortItems, STOCK_OPTIONS, VIEW_PAGE_SIZES, type Filters, type ViewMode,

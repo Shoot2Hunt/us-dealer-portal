@@ -3,7 +3,7 @@ import { desc, eq, inArray } from "drizzle-orm";
 import { db, orders, storeOrders, users } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth/session";
 import { OrderStatus } from "@/components/status";
-import { usd } from "@/components/cart";
+import { usd } from "@/lib/money";
 import { storeName } from "@/lib/woo/stores";
 
 export default async function AdminOrdersPage() {

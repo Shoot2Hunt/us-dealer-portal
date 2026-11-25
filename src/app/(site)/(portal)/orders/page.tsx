@@ -3,7 +3,7 @@ import { desc, eq } from "drizzle-orm";
 import { db, orders } from "@/lib/db";
 import { requireUser } from "@/lib/auth/session";
 import { OrderStatus } from "@/components/status";
-import { usd } from "@/components/cart";
+import { usd } from "@/lib/money";
 
 export default async function OrdersPage() {
   const user = await requireUser();

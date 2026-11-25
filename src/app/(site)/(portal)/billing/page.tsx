@@ -3,7 +3,7 @@ import { requireUser } from "@/lib/auth/session";
 import { acceptJsConfig, authnetConfig } from "@/lib/authnet";
 import { formatDue, getInvoices, getTermsStatus } from "@/lib/invoices";
 import { getPaymentSettings } from "@/sanity/content";
-import { usd } from "@/components/cart";
+import { usd } from "@/lib/money";
 import { PayInvoices, type InvoiceRow } from "./pay-invoices";
 import { BillingDetails } from "./billing-details";
 import { addressSchema } from "@/lib/orders";

@@ -2,7 +2,8 @@
 
 import { useMemo, useState, ViewTransition } from "react";
 import type { ProductDetail, ProductVariant } from "@/lib/catalog";
-import { flyToCart, useCart, usd } from "@/components/cart";
+import { flyToCart, useCart } from "@/components/cart";
+import { usd } from "@/lib/money";
 
 type Props = {
   product: Omit<ProductDetail, "description" | "shortDescription"> & { shortDescriptionHtml: string | null; hasDescription: boolean; descriptionExcerpt: string | null };

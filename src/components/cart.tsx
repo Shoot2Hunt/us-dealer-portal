@@ -130,7 +130,6 @@ export function useCart() {
   return cart;
 }
 
-export const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 
 /**
  * Animates a small parcel from `from` (e.g. the Add button) along an arc into the header

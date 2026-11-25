@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { usd } from "@/components/cart";
+import { usd } from "@/lib/money";
 import { loadAcceptJs, tokenize, type BankInput } from "@/lib/accept";
 import { CardFields, cardholderOf, emptyCardForm } from "@/components/card-fields";
 import type { Address } from "@/lib/db/schema";

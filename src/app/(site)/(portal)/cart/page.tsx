@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCart, usd } from "@/components/cart";
+import { useCart } from "@/components/cart";
+import { usd } from "@/lib/money";
 
 export default function CartPage() {
   const cart = useCart();
