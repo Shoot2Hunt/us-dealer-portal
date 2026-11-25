@@ -2,6 +2,7 @@ import "server-only";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { phoneField } from "@/lib/phone";
+import { cardholderSchema } from "@/lib/cardholder";
 import {
   db,
   inventory,
@@ -36,18 +37,6 @@ export const addressSchema = z.object({
   postcode: z.string().trim().regex(/^[0-9]{5}(-[0-9]{4})?$/, "Enter a 5-digit ZIP code"),
   phone: phoneField,
 });
-
-/** Name on the card and the card's address, from the card form. */
-export const cardholderSchema = z.object({
-  firstName: z.string().trim().min(1, "Enter the name on the card").max(50),
-  lastName: z.string().trim().min(1, "Enter the name on the card").max(50),
-  address1: z.string().trim().min(1, "Enter the card's address").max(60),
-  address2: z.string().trim().max(60).optional(),
-  city: z.string().trim().min(1, "Enter the card's city").max(40),
-  state: z.string().trim().regex(/^[A-Za-z]{2}$/, "Use the 2-letter state code for the card's address").transform((s) => s.toUpperCase()),
-  postcode: z.string().trim().regex(/^[0-9]{5}(-[0-9]{4})?$/, "Enter the card's 5-digit ZIP code"),
-});
-export type CardholderInput = z.infer<typeof cardholderSchema>;
 
 const opaque = z.object({ dataDescriptor: z.string().max(100), dataValue: z.string().max(4000) });
 
