@@ -139,3 +139,30 @@ export function trackingFromOrder(order: WooOrder): string | null {
     .join(", ");
   return text || null;
 }
+
+/** Portal order status → the matching WooCommerce status (null = leave Woo alone). */
+export const WOO_STATUS_FOR: Record<string, string | null> = {
+  processing: "processing",
+  awaiting_payment: "on-hold",
+  payment_problem: "on-hold",
+  failed: "failed",
+  cancelled: "cancelled",
+};
+
+/**
+ * Admin edits pushed to a brand's WooCommerce order: status (without marking it paid),
+ * shipping address and PO number. Only the fields given are changed.
+ */
+export async function updateWooOrderDetails(
+  storeKey: StoreKey,
+  wooOrderId: number,
+  changes: { status?: string; shipping?: Address; poNumber?: string | null },
+  note?: string,
+) {
+  const body: Record<string, unknown> = {};
+  if (changes.status) body.status = changes.status;
+  if (changes.shipping) body.shipping = wooAddress(changes.shipping);
+  if (changes.poNumber !== undefined) body.customer_note = changes.poNumber ? `PO: ${changes.poNumber}` : "";
+  if (Object.keys(body).length) await woo(getStore(storeKey), `/orders/${wooOrderId}`, { method: "PUT", body });
+  if (note) await addOrderNote(storeKey, wooOrderId, note);
+}

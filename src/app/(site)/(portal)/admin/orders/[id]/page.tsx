@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/auth/session";
 import { getOrderForUser } from "@/lib/orders";
@@ -46,6 +47,13 @@ export default async function AdminOrderPage({ params, searchParams }: PageProps
         </div>
       )}
 
+      {isSuper && (
+        <div className="flex justify-end">
+          <Link href={`/admin/orders/${detail.order.id}/edit`} className="btn-ghost inline-flex items-center gap-1.5">
+            <span className="icon-[lucide--pencil] h-4 w-4" aria-hidden="true" /> Edit order
+          </Link>
+        </div>
+      )}
       {(checks.length > 0 || failed.length > 0 || canCancel) && (
         <div className="card flex flex-wrap items-start gap-3 bg-panel">
           {checks.map((p) => (

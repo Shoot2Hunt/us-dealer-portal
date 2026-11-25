@@ -25,5 +25,6 @@ export function OrderStatus({ status }: { status: string }) {
   return <span className={`badge ${cls}`}>{label}</span>;
 }
 
+export const orderStatusLabel = (s: string) => ORDER[s]?.[0] ?? s;
 export const paymentLabel = (s: string) => PAYMENT[s] ?? s;
 export const methodLabel = (m: string) => (m === "ach" ? "ACH" : m === "card" ? "Card" : m === "terms" ? "Invoice" : "Check");
