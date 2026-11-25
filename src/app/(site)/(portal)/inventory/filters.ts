@@ -7,6 +7,8 @@ import type { CatalogItem } from "@/lib/catalog";
  */
 
 export type StockFilter = "any" | "available" | "instock" | "backorder" | "out";
+/** List = the table; grid = product cards, 3 across (a 3×3 page by default). */
+export type ViewMode = "list" | "grid";
 export type SortKey = "featured" | "name" | "price-asc" | "price-desc" | "stock" | "updated";
 
 export type Filters = {
@@ -21,11 +23,14 @@ export type Filters = {
   /** Only items with a sale, promotion or tier price below the regular dealer price. */
   sale: boolean;
   sort: SortKey;
+  view: ViewMode;
   size: number;
   page: number;
 };
 
-export const PAGE_SIZES = [25, 50, 100] as const;
+/** Per-page choices for each view. Grid sizes are multiples of 3 so rows are always full. */
+export const VIEW_PAGE_SIZES: Record<ViewMode, readonly number[]> = { list: [25, 50, 100], grid: [9, 18, 36] };
+export const DEFAULT_PAGE_SIZE: Record<ViewMode, number> = { list: 50, grid: 9 };
 
 export const STOCK_OPTIONS: [StockFilter, string][] = [
   ["any", "Any availability"],
@@ -45,7 +50,7 @@ export const SORT_OPTIONS: [SortKey, string][] = [
 ];
 
 export const DEFAULT_FILTERS: Filters = {
-  q: "", brands: [], cats: [], stock: "any", min: "", max: "", orderable: false, featured: false, sale: false, sort: "featured", size: 50, page: 1,
+  q: "", brands: [], cats: [], stock: "any", min: "", max: "", orderable: false, featured: false, sale: false, sort: "featured", view: "list", size: 50, page: 1,
 };
 
 const list = (v: string | null) => (v ? v.split(",").filter(Boolean) : []);
@@ -55,6 +60,7 @@ const oneOf = <T extends string>(v: string | null, options: [T, string][], fallb
 export function filtersFromParams(p: URLSearchParams): Filters {
   const size = Number(p.get("size"));
   const page = Number(p.get("page"));
+  const view: ViewMode = p.get("view") === "grid" ? "grid" : "list";
   return {
     q: p.get("q") ?? "",
     brands: list(p.get("brand")),
@@ -66,7 +72,8 @@ export function filtersFromParams(p: URLSearchParams): Filters {
     featured: p.get("featured") === "1",
     sale: p.get("sale") === "1",
     sort: oneOf(p.get("sort"), SORT_OPTIONS, "featured"),
-    size: (PAGE_SIZES as readonly number[]).includes(size) ? size : DEFAULT_FILTERS.size,
+    view,
+    size: VIEW_PAGE_SIZES[view].includes(size) ? size : DEFAULT_PAGE_SIZE[view],
     page: Number.isInteger(page) && page > 0 ? page : 1,
   };
 }
@@ -84,7 +91,8 @@ export function filtersToQuery(f: Filters): string {
   if (f.featured) p.set("featured", "1");
   if (f.sale) p.set("sale", "1");
   if (f.sort !== "featured") p.set("sort", f.sort);
-  if (f.size !== DEFAULT_FILTERS.size) p.set("size", String(f.size));
+  if (f.view !== "list") p.set("view", f.view);
+  if (f.size !== DEFAULT_PAGE_SIZE[f.view]) p.set("size", String(f.size));
   if (f.page > 1) p.set("page", String(f.page));
   const s = p.toString();
   return s ? `?${s}` : "";

@@ -22,9 +22,10 @@ import { evaluateDiscount } from "@/lib/discounts";
 import { isStoreKey, storeName, type StoreKey } from "@/lib/woo/stores";
 import { adminNotifyEmails, appUrl, sendEmail } from "@/lib/email";
 import { addDays, balanceOf, formatDue, getTermsStatus, todayIso } from "@/lib/invoices";
+import { billingAddressFor, billingRecipients } from "@/lib/billing";
 
 // Every field has an upper bound: these values go to WooCommerce and into emails.
-const addressSchema = z.object({
+export const addressSchema = z.object({
   firstName: z.string().trim().min(1).max(60),
   lastName: z.string().trim().min(1).max(60),
   company: z.string().trim().max(120).optional(),
@@ -160,7 +161,7 @@ export async function placeOrder(user: User, input: CheckoutInput): Promise<Chec
 
   // 5. Take payment. Cards are authorized first, then eChecks debited, then cards captured,
   //    so any decline can be rolled back before the dealer is charged.
-  const txCtx = { invoiceNumber: `DP${order.number}`, description: `Dealer portal order #${order.number}`, email: user.email };
+  const txCtx = { invoiceNumber: `DP${order.number}`, description: `Dealer portal order #${order.number}`, email: user.billingEmail ?? user.email, billTo: billingAddressFor(user) };
   type Done = { method: "card" | "ach" | "check" | "terms"; amount: number; transId?: string; last4?: string; status: (typeof payments.$inferInsert)["status"]; error?: string };
   const done: Done[] = [];
   const rollback = async () => {
@@ -243,7 +244,7 @@ async function notifyOrderPlaced(user: User, orderId: string, number: number, to
   const link = appUrl(`/orders/${orderId}`);
   await sendEmail({
     kind: "order.confirmation",
-    to: user.email,
+    to: billingRecipients(user),
     subject: `Order #${number} received`,
     text: `Thanks — we received order #${number} for $${total}.${note}\n\n${link}`,
   });

@@ -77,7 +77,32 @@ async function createTransaction(transactionRequest: Record<string, unknown>, re
   }
 }
 
-type TxContext = { invoiceNumber: string; description: string; email: string };
+type TxContext = {
+  invoiceNumber: string;
+  description: string;
+  email: string;
+  /** The dealer's billing address (Billing page), for the card's address check (AVS). */
+  billTo?: { firstName: string; lastName: string; company?: string; address1: string; address2?: string; city: string; state: string; postcode: string; phone?: string } | null;
+};
+
+/** Authorize.net's billTo, trimmed to its field lengths. Comes after "customer" in key order. */
+function billTo(ctx: TxContext) {
+  const a = ctx.billTo;
+  if (!a) return {};
+  return {
+    billTo: {
+      firstName: a.firstName.slice(0, 50),
+      lastName: a.lastName.slice(0, 50),
+      ...(a.company ? { company: a.company.slice(0, 50) } : {}),
+      address: [a.address1, a.address2].filter(Boolean).join(", ").slice(0, 60),
+      city: a.city.slice(0, 40),
+      state: a.state.slice(0, 40),
+      zip: a.postcode.slice(0, 20),
+      country: "US",
+      ...(a.phone ? { phoneNumber: a.phone.slice(0, 25) } : {}),
+    },
+  };
+}
 
 function money(n: number) {
   return n.toFixed(2);
@@ -92,6 +117,7 @@ export function authorizeCard(amount: number, token: OpaqueData, ctx: TxContext,
       payment: { opaqueData: token },
       order: { invoiceNumber: ctx.invoiceNumber.slice(0, 20), description: ctx.description.slice(0, 255) },
       customer: { email: ctx.email },
+      ...billTo(ctx),
     },
     refId,
   );
@@ -106,6 +132,7 @@ export function debitBank(amount: number, token: OpaqueData, ctx: TxContext, ref
       payment: { opaqueData: token },
       order: { invoiceNumber: ctx.invoiceNumber.slice(0, 20), description: ctx.description.slice(0, 255) },
       customer: { email: ctx.email },
+      ...billTo(ctx),
     },
     refId,
   );
@@ -120,6 +147,7 @@ export function chargeCard(amount: number, token: OpaqueData, ctx: TxContext, re
       payment: { opaqueData: token },
       order: { invoiceNumber: ctx.invoiceNumber.slice(0, 20), description: ctx.description.slice(0, 255) },
       customer: { email: ctx.email },
+      ...billTo(ctx),
     },
     refId,
   );

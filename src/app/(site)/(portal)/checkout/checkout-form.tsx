@@ -25,7 +25,10 @@ export function CheckoutForm({
   acceptJs,
   onlinePayments,
   terms,
+  preferred,
 }: {
+  /** The dealer's preferred method (Billing details), selected first when available. */
+  preferred?: Method | null;
   settings: PaymentSettings;
   terms: CheckoutTerms;
   /** False when Authorize.net isn't configured: card and ACH are hidden. */
@@ -47,7 +50,7 @@ export function CheckoutForm({
   const [address, setAddress] = useState<Address>(defaultAddress);
   const [poNumber, setPoNumber] = useState("");
   const [mode, setMode] = useState<"single" | "split">("single");
-  const [parts, setParts] = useState<Part[]>([{ key: 1, method: methods[0] ?? "card", amount: "", card: emptyCard, bank: emptyBank }]);
+  const [parts, setParts] = useState<Part[]>([{ key: 1, method: preferred && methods.includes(preferred) ? preferred : (methods[0] ?? "card"), amount: "", card: emptyCard, bank: emptyBank }]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 

@@ -19,6 +19,7 @@ export default async function CheckoutPage() {
       settings={settings}
       onlinePayments={online}
       terms={terms}
+      preferred={user.preferredPaymentMethod}
       defaultAddress={user.shippingAddress ?? { firstName: user.name.split(" ")[0] ?? "", lastName: user.name.split(" ").slice(1).join(" "), company: user.company ?? "", address1: "", city: "", state: "", postcode: "", phone: user.phone ?? "" }}
       acceptJs={acceptJsConfig()}
     />

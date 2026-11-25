@@ -93,12 +93,18 @@ export const users = pgTable("users", {
   /** SHA-256 hashes of unused one-time recovery codes. */
   recoveryCodeHashes: text("recovery_code_hashes").array(),
   approvedBy: uuid("approved_by"),
+  // --- Billing details (Billing page). ---
+  /** Billing name and address; null = same as the shipping address. */
+  billingAddress: jsonb("billing_address").$type<Address>(),
+  /** Where receipts and invoice emails also go (accounts payable). Null = the login email only. */
+  billingEmail: text("billing_email"),
+  /** Pre-selected at checkout and on the Billing page. */
+  preferredPaymentMethod: paymentMethodEnum("preferred_payment_method"),
   /*
    * Saved-card / Authorize.net columns that already exist in the database but were added
    * outside this codebase. Declared here so `db:push` keeps them (it drops anything the
    * schema doesn't list). Nothing in this app reads or writes them yet.
    */
-  billingAddress: jsonb("billing_address"),
   authnetCustomerProfileId: text("authnet_customer_profile_id"),
   cardAddAttempts: integer("card_add_attempts").notNull().default(0),
   cardAddWindowStart: timestamp("card_add_window_start", { withTimezone: true }),

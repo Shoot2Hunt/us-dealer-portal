@@ -7,6 +7,7 @@ import { getPaymentSettings } from "@/sanity/content";
 import { releaseIfPaid } from "@/lib/orders";
 import { adminNotifyEmails, appUrl, sendEmail } from "@/lib/email";
 import { reportError } from "@/lib/errors";
+import { billingAddressFor, billingRecipients } from "@/lib/billing";
 
 /*
  * Invoices are portal orders that still owe money:
@@ -242,7 +243,8 @@ export async function payInvoices(user: User, input: PayInvoicesInput): Promise<
     const ctx = {
       invoiceNumber: numbers.length === 1 ? `DP${numbers[0]}` : `DPPAY${Date.now().toString(36).toUpperCase()}`,
       description: `Dealer portal invoice payment: ${numbers.map((n) => `#${n}`).join(", ")}`,
-      email: user.email,
+      email: user.billingEmail ?? user.email,
+      billTo: billingAddressFor(user),
     };
     const token = input.token as OpaqueData;
     const tx = input.method === "card" ? await chargeCard(amountCents / 100, token, ctx, user.id.replace(/-/g, "")) : await debitBank(amountCents / 100, token, ctx, user.id.replace(/-/g, ""));
@@ -277,7 +279,8 @@ export async function payInvoices(user: User, input: PayInvoicesInput): Promise<
     const how = `${input.method === "card" ? "Card" : "ACH"}${tx.last4 ? ` ending ${tx.last4}` : ""}`;
     await sendEmail({
       kind: "invoice.receipt",
-      to: user.email,
+      // The dealer and their billing email (accounts payable), if they set one.
+      to: billingRecipients(user),
       subject: `Payment received: $${dollars(amountCents)}`,
       text: `Thanks — we received your payment of $${dollars(amountCents)} (${how}).${input.method === "ach" ? " Bank payments take a few business days to clear." : ""}\n\n${lines}\n\n${appUrl("/billing")}`,
     });

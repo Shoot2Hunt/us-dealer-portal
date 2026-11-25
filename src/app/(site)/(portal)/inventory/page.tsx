@@ -7,6 +7,7 @@ import { getTierStatus } from "@/lib/tiers";
 import { TierProgress } from "@/components/tier-progress";
 import { PluginEmbeds } from "@/components/plugin-slots";
 import { InventoryTable } from "./inventory-table";
+import { cookies } from "next/headers";
 
 export default async function InventoryPage() {
   const user = await requireUser();
@@ -17,6 +18,8 @@ export default async function InventoryPage() {
     user.role === "dealer" ? getTierStatus(user.id) : null,
     getPromotions(),
   ]);
+  // Grid or list, remembered from the dealer's last choice (set by the toggle).
+  const savedView = (await cookies()).get("inventory_view")?.value === "grid" ? "grid" : "list";
   const running = promos.filter((p) => isCurrent(p.startsAt, p.endsAt));
   return (
     <div className="space-y-6">
@@ -49,7 +52,7 @@ export default async function InventoryPage() {
       </div>
       {tier && <TierProgress status={tier} />}
       <PluginEmbeds slot="inventory" user={user} />
-      <InventoryTable initial={{ items, at: new Date().toISOString() }} />
+      <InventoryTable initial={{ items, at: new Date().toISOString() }} savedView={savedView} />
     </div>
   );
 }

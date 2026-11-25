@@ -7,23 +7,33 @@ import useSWR from "swr";
 import type { CatalogItem } from "@/lib/catalog";
 import { flyToCart, useCart, usd } from "@/components/cart";
 import {
-  applyFilters, categoryLabel, countBy, DEFAULT_FILTERS, filtersFromParams, filtersToQuery, pageList,
-  PAGE_SIZES, SORT_OPTIONS, sortItems, STOCK_OPTIONS, type Filters,
+  applyFilters, categoryLabel, countBy, DEFAULT_FILTERS, DEFAULT_PAGE_SIZE, filtersFromParams, filtersToQuery, pageList,
+  SORT_OPTIONS, sortItems, STOCK_OPTIONS, VIEW_PAGE_SIZES, type Filters, type ViewMode,
 } from "./filters";
 
 type Data = { items: CatalogItem[]; at: string };
 const fetcher = (url: string) => fetch(url).then((r) => (r.ok ? r.json() : Promise.reject(r)));
 
+/** Remember grid/list for next time; the inventory page reads it on the server, so there's no flash. */
+function rememberView(view: ViewMode) {
+  document.cookie = `inventory_view=${view}; Path=/inventory; Max-Age=${60 * 60 * 24 * 365}; SameSite=Lax`;
+}
+
 /** How many categories to list before "Show all". */
 const CATEGORY_PREVIEW = 8;
 
 /** Polls every 10 seconds, so stock changes from any of the four stores show up live. */
-export function InventoryTable({ initial }: { initial: Data }) {
+export function InventoryTable({ initial, savedView }: { initial: Data; savedView: ViewMode }) {
   const { data } = useSWR<Data>("/api/inventory", fetcher, { fallbackData: initial, refreshInterval: 10_000 });
   const items = useMemo(() => data?.items ?? [], [data]);
 
   const searchParams = useSearchParams();
-  const [filters, setFilters] = useState<Filters>(() => filtersFromParams(new URLSearchParams(searchParams.toString())));
+  const [filters, setFilters] = useState<Filters>(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    // No view in the link: use the dealer's last choice.
+    if (!params.has("view") && savedView === "grid") params.set("view", "grid");
+    return filtersFromParams(params);
+  });
   const [showFilters, setShowFilters] = useState(false);
   const topRef = useRef<HTMLDivElement>(null);
 
@@ -69,7 +79,14 @@ export function InventoryTable({ initial }: { initial: Data }) {
     ...(filters.featured ? [{ label: "Featured", clear: () => update({ featured: false }) }] : []),
     ...(filters.sale ? [{ label: "On sale", clear: () => update({ sale: false }) }] : []),
   ];
-  const clearAll = () => setFilters((x) => ({ ...DEFAULT_FILTERS, sort: x.sort, size: x.size }));
+  const clearAll = () => setFilters((x) => ({ ...DEFAULT_FILTERS, sort: x.sort, view: x.view, size: x.size }));
+
+  /** Switch grid/list: page size resets to that view's default (9 = a 3×3 grid), and it's remembered. */
+  const setView = (view: ViewMode) => {
+    if (view === filters.view) return;
+    rememberView(view);
+    update({ view, size: DEFAULT_PAGE_SIZE[view] });
+  };
 
   return (
     <div ref={topRef} className="scroll-mt-24">
@@ -85,8 +102,23 @@ export function InventoryTable({ initial }: { initial: Data }) {
         <button className="btn-ghost md:hidden" onClick={() => setShowFilters((s) => !s)} aria-expanded={showFilters}>
           Filters{chips.length ? ` (${chips.length})` : ""}
         </button>
+        <div className="flex rounded-md border border-line bg-white p-0.5" role="group" aria-label="Layout">
+          {([["grid", "icon-[lucide--layout-grid]", "Grid"], ["list", "icon-[lucide--list]", "List"]] as const).map(([v, icon, label]) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setView(v)}
+              aria-pressed={filters.view === v}
+              title={`${label} view`}
+              className={`flex items-center gap-1.5 rounded px-2.5 py-1.5 text-sm transition-colors ${filters.view === v ? "bg-ink text-white" : "text-muted hover:bg-panel hover:text-ink"}`}
+            >
+              <span className={`${icon} h-4 w-4`} aria-hidden="true" />
+              <span className="hidden sm:inline">{label}</span>
+            </button>
+          ))}
+        </div>
         <label className="flex items-center gap-2 text-sm">
-          <span className="text-muted">Sort</span>
+          <span className="text-muted">Sort by</span>
           <select className="input w-auto" value={filters.sort} onChange={(e) => update({ sort: e.target.value as Filters["sort"] })}>
             {SORT_OPTIONS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
           </select>
@@ -145,6 +177,20 @@ export function InventoryTable({ initial }: { initial: Data }) {
             {chips.length > 1 && <button onClick={clearAll} className="text-xs text-accent hover:underline">Clear all</button>}
           </div>
 
+          {filters.view === "grid" ? (
+            shown.length ? (
+              <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                {shown.map((item) => (
+                  <Card key={item.id} item={item} />
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-lg border border-line px-3 py-10 text-center text-sm text-muted">
+                No products match these filters.{" "}
+                {chips.length > 0 && <button onClick={clearAll} className="text-accent hover:underline">Clear all filters</button>}
+              </p>
+            )
+          ) : (
           <div className="overflow-x-auto rounded-lg border border-line">
             <table className="w-full text-sm">
               <thead className="bg-linear-to-r from-panel to-accent-soft/60 text-left font-display text-xs uppercase tracking-wide text-muted">
@@ -172,8 +218,9 @@ export function InventoryTable({ initial }: { initial: Data }) {
               </tbody>
             </table>
           </div>
+          )}
 
-          <Pagination page={page} pages={pages} size={f.size} onPage={goToPage} onSize={(size) => update({ size })} />
+          <Pagination page={page} pages={pages} size={f.size} sizes={VIEW_PAGE_SIZES[f.view]} onPage={goToPage} onSize={(size) => update({ size })} />
         </div>
       </div>
     </div>
@@ -234,13 +281,13 @@ function CategoryFilter({ counts, selected, onToggle }: { counts: Map<string, nu
   );
 }
 
-function Pagination({ page, pages, size, onPage, onSize }: { page: number; pages: number; size: number; onPage: (n: number) => void; onSize: (n: number) => void }) {
+function Pagination({ page, pages, size, sizes, onPage, onSize }: { page: number; pages: number; size: number; sizes: readonly number[]; onPage: (n: number) => void; onSize: (n: number) => void }) {
   return (
     <nav className="flex flex-wrap items-center justify-between gap-3 text-sm" aria-label="Pagination">
       <label className="flex items-center gap-2 text-muted">
         Per page
         <select className="input w-auto py-1" value={size} onChange={(e) => onSize(Number(e.target.value))}>
-          {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+          {sizes.map((n) => <option key={n} value={n}>{n}</option>)}
         </select>
       </label>
       {pages > 1 && (
@@ -268,9 +315,6 @@ function Pagination({ page, pages, size, onPage, onSize }: { page: number; pages
 }
 
 function Row({ item }: { item: CatalogItem }) {
-  const cart = useCart();
-  const [qty, setQty] = useState(item.minQuantity);
-  const [added, setAdded] = useState(false);
   const orderable = item.inStock && !item.restriction && item.dealerPrice !== null;
   const href = `/inventory/${item.store}/${item.productId}${item.variationId ? `?v=${item.variationId}` : ""}`;
   const router = useRouter();
@@ -354,41 +398,119 @@ function Row({ item }: { item: CatalogItem }) {
         )}
       </td>
       <td className="px-3 py-2">
-        {orderable && (
-          <div className="flex items-center justify-end gap-2">
-            <input
-              type="number"
-              min={item.minQuantity}
-              max={item.stockQuantity ?? undefined}
-              value={qty}
-              onChange={(e) => setQty(Math.max(item.minQuantity, Number(e.target.value) || item.minQuantity))}
-              className="input w-20"
-            />
-            <button
-              className={`btn-ghost min-w-22 ${added ? "border-green-600 bg-green-600 text-white hover:border-green-600 hover:bg-green-600" : "hover:border-accent hover:bg-accent hover:text-white"}`}
-              onClick={(e) => {
-                cart.add(
-                  { id: item.id, name: item.name, sku: item.sku, brandName: item.brandName, store: item.store, unitPrice: item.dealerPrice!, minQuantity: item.minQuantity },
-                  qty,
-                );
-                setAdded(true);
-                setTimeout(() => setAdded(false), 1500);
-                void flyToCart(e.currentTarget).then(cart.bump);
-              }}
-            >
-              {added ? (
-                <span key="added" className="inline-flex animate-pop-in items-center gap-1.5">
-                  <span className="icon-[lucide--check] h-4 w-4" aria-hidden="true" /> Added
-                </span>
-              ) : (
-                <span key="add" className="inline-flex items-center gap-1.5">
-                  <span className="icon-[lucide--shopping-cart] h-4 w-4" aria-hidden="true" /> Add
-                </span>
-              )}
-            </button>
-          </div>
-        )}
+        {orderable && <AddToCart item={item} />}
       </td>
     </tr>
+  );
+}
+
+/** Quantity + Add to cart, shared by the list rows and the grid cards. */
+function AddToCart({ item, className = "justify-end" }: { item: CatalogItem; className?: string }) {
+  const cart = useCart();
+  const [qty, setQty] = useState(item.minQuantity);
+  const [added, setAdded] = useState(false);
+  return (
+    <div className={`flex items-center gap-2 ${className}`}>
+      <input
+        type="number"
+        min={item.minQuantity}
+        max={item.stockQuantity ?? undefined}
+        value={qty}
+        onChange={(e) => setQty(Math.max(item.minQuantity, Number(e.target.value) || item.minQuantity))}
+        className="input w-20"
+      />
+      <button
+        className={`btn-ghost min-w-22 ${added ? "border-green-600 bg-green-600 text-white hover:border-green-600 hover:bg-green-600" : "hover:border-accent hover:bg-accent hover:text-white"}`}
+        onClick={(e) => {
+          cart.add(
+            { id: item.id, name: item.name, sku: item.sku, brandName: item.brandName, store: item.store, unitPrice: item.dealerPrice!, minQuantity: item.minQuantity },
+            qty,
+          );
+          setAdded(true);
+          setTimeout(() => setAdded(false), 1500);
+          void flyToCart(e.currentTarget).then(cart.bump);
+        }}
+      >
+        {added ? (
+          <span key="added" className="inline-flex animate-pop-in items-center gap-1.5">
+            <span className="icon-[lucide--check] h-4 w-4" aria-hidden="true" /> Added
+          </span>
+        ) : (
+          <span key="add" className="inline-flex items-center gap-1.5">
+            <span className="icon-[lucide--shopping-cart] h-4 w-4" aria-hidden="true" /> Add
+          </span>
+        )}
+      </button>
+    </div>
+  );
+}
+
+/** One product in the grid view: big photo, name and dealer price, the regular price crossed out when on sale. */
+function Card({ item }: { item: CatalogItem }) {
+  const orderable = item.inStock && !item.restriction && item.dealerPrice !== null;
+  const href = `/inventory/${item.store}/${item.productId}${item.variationId ? `?v=${item.variationId}` : ""}`;
+  const onSale = item.compareAtPrice !== null && item.dealerPrice !== null;
+  const tier = item.priceReason?.kind === "tier";
+  const saleLabel = !onSale
+    ? null
+    : tier
+      ? item.priceReason!.label
+      : `Sale −${Math.round((1 - item.dealerPrice! / item.compareAtPrice!) * 100)}%`;
+
+  return (
+    <article className="group flex animate-fade-up flex-col">
+      <Link href={href} transitionTypes={["nav-forward"]} className="relative block aspect-square overflow-hidden rounded-lg bg-panel ring-1 ring-line">
+        {item.imageUrl ? (
+          // Same name as the product page's main photo, so it morphs between the two.
+          <ViewTransition name={`product-img-${item.id}`} share="morph" default="none">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={item.imageUrl} alt={item.name} loading="lazy" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
+          </ViewTransition>
+        ) : (
+          <span className="flex h-full w-full items-center justify-center text-muted/40">
+            <span className="icon-[lucide--image] h-12 w-12" aria-hidden="true" />
+          </span>
+        )}
+        <span className="absolute left-3 top-3 flex flex-col items-start gap-1.5">
+          {saleLabel && (
+            <span className={`max-w-40 truncate rounded px-2 py-0.5 text-xs font-bold uppercase tracking-wide shadow-sm ${tier ? "bg-accent text-white" : "bg-red-600 text-white"}`} title={item.priceReason?.label}>
+              {saleLabel}
+            </span>
+          )}
+          {item.featured && <span className="rounded bg-white/90 px-2 py-0.5 text-xs font-semibold text-accent shadow-sm">Featured</span>}
+        </span>
+        {!item.inStock && (
+          <span className="absolute inset-x-0 bottom-0 bg-ink/75 py-1.5 text-center text-xs font-semibold uppercase tracking-wide text-white">Out of stock</span>
+        )}
+      </Link>
+
+      <div className="mt-3 flex items-start justify-between gap-3">
+        <Link href={href} transitionTypes={["nav-forward"]} className="min-w-0 font-medium leading-snug transition-colors hover:text-accent">
+          <span className="line-clamp-2">{item.name}</span>
+        </Link>
+        <span className={`shrink-0 text-lg font-semibold ${onSale ? "text-red-700" : ""}`}>{item.dealerPrice !== null ? usd(item.dealerPrice) : "—"}</span>
+      </div>
+      <div className="mt-0.5 flex items-center justify-between gap-3 text-sm text-muted">
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+          {item.brandColor && <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: item.brandColor }} aria-hidden="true" />}
+          <span className="truncate">
+            {item.brandName}
+            {item.inStock && (
+              <span className={item.stockStatus === "onbackorder" ? "text-amber-700" : "text-green-700"}>
+                {" · "}
+                {item.stockStatus === "onbackorder" ? "Backorder" : item.stockQuantity !== null ? `${item.stockQuantity} in stock` : "In stock"}
+              </span>
+            )}
+          </span>
+        </span>
+        {onSale ? (
+          <span className="shrink-0 line-through">{usd(item.compareAtPrice!)}</span>
+        ) : item.retailPrice !== null ? (
+          <span className="shrink-0 text-xs">Retail {usd(item.retailPrice)}</span>
+        ) : null}
+      </div>
+      {item.restriction && <p className="mt-1 text-xs text-red-700">{item.restriction}</p>}
+      {orderable && <AddToCart item={item} className="mt-3" />}
+    </article>
   );
 }

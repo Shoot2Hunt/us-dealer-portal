@@ -2,6 +2,7 @@ import "server-only";
 import { and, eq } from "drizzle-orm";
 import { db, storeCustomers, type Address, type User } from "@/lib/db";
 import { woo, type WooOrder } from "./client";
+import { billingAddressFor } from "@/lib/billing";
 import { getStore, type StoreKey } from "./stores";
 
 function wooAddress(a: Address, email?: string) {
@@ -39,7 +40,7 @@ export async function ensureWooCustomer(storeKey: StoreKey, user: User, address:
         first_name: address.firstName,
         last_name: address.lastName,
         username: user.email,
-        billing: wooAddress(address, user.email),
+        billing: wooAddress(billingAddressFor(user) ?? address, user.billingEmail ?? user.email),
         shipping: wooAddress(address),
         meta_data: [{ key: "_dealer_portal_user_id", value: user.id }],
       },
@@ -82,7 +83,8 @@ export async function createWooOrder(o: NewStoreOrder): Promise<WooOrder> {
       customer_id: customerId,
       payment_method: "dealer_portal",
       payment_method_title: "Dealer Portal",
-      billing: wooAddress(o.address, o.user.email),
+      // Billing details from the dealer's Billing page; shipping is this order's address.
+      billing: wooAddress(billingAddressFor(o.user) ?? o.address, o.user.billingEmail ?? o.user.email),
       shipping: wooAddress(o.address),
       customer_note: o.poNumber ? `PO: ${o.poNumber}` : "",
       line_items: o.lines.map((l) => {

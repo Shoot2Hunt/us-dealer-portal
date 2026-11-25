@@ -30,6 +30,7 @@ export function PayInvoices({
   invoices,
   methods,
   preselect,
+  preferred,
   acceptJs,
   check,
 }: {
@@ -38,6 +39,8 @@ export function PayInvoices({
   methods: readonly Method[];
   /** Order id from "Pay this invoice" on an order page: start with only that one selected. */
   preselect?: string;
+  /** The dealer's preferred method (Billing details), when it's card or ACH. */
+  preferred?: Method;
   acceptJs: { url: string; apiLoginId: string; clientKey: string };
   check: { payableTo?: string; address?: string } | null;
 }) {
@@ -50,7 +53,7 @@ export function PayInvoices({
   });
   const [mode, setMode] = useState<"full" | "partial">("full");
   const [partial, setPartial] = useState("");
-  const [method, setMethod] = useState<Method>(methods[0] ?? "card");
+  const [method, setMethod] = useState<Method>(preferred && methods.includes(preferred) ? preferred : (methods[0] ?? "card"));
   const [card, setCard] = useState(emptyCard);
   const [bank, setBank] = useState(emptyBank);
   const [error, setError] = useState<string | null>(null);

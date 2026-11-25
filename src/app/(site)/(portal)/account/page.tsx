@@ -49,9 +49,13 @@ export default async function AccountPage() {
             <div>
               <p className="font-semibold">Two-step verification is required</p>
               <p className="mt-0.5">
-                Your organization requires two-step verification for {isDealer ? "dealer" : "admin"} accounts. Set it up below to
-                continue using the portal.
+                Your organization requires two-step verification for {isDealer ? "dealer" : "admin"} accounts. Until it&apos;s on, the
+                rest of the portal sends you back here. It takes about a minute with an authenticator app (Google Authenticator,
+                Microsoft Authenticator, 1Password…).
               </p>
+              <a href="#two-factor" className="btn-accent mt-3 inline-flex text-sm">
+                <span className="icon-[lucide--shield-check] h-4 w-4" aria-hidden="true" /> Set it up now
+              </a>
             </div>
           </div>
         )}

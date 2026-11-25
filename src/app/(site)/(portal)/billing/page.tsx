@@ -5,6 +5,9 @@ import { formatDue, getInvoices, getTermsStatus } from "@/lib/invoices";
 import { getPaymentSettings } from "@/sanity/content";
 import { usd } from "@/components/cart";
 import { PayInvoices, type InvoiceRow } from "./pay-invoices";
+import { BillingDetails } from "./billing-details";
+import { addressSchema } from "@/lib/orders";
+import { PAYMENT_METHOD_LABEL, type PaymentMethod } from "@/lib/billing";
 
 export const metadata: Metadata = { title: "Billing" };
 
@@ -15,6 +18,14 @@ export default async function BillingPage({ searchParams }: PageProps<"/billing"
   const online = authnetConfig().ready;
   const methods = [...(online && settings.enableCard ? (["card"] as const) : []), ...(online && settings.enableAch ? (["ach"] as const) : [])];
   const pay = typeof sp.pay === "string" ? sp.pay : undefined;
+  // Every method this dealer could use at checkout, for "preferred payment method".
+  const usable: PaymentMethod[] = [
+    ...(terms.approved ? (["terms"] as const) : []),
+    ...methods,
+    ...(settings.enableCheck ? (["check"] as const) : []),
+  ];
+  const savedBilling = addressSchema.safeParse(user.billingAddress);
+  const shipping = addressSchema.safeParse(user.shippingAddress);
 
   const rows: InvoiceRow[] = summary.invoices.map((i) => ({
     ...i,
@@ -73,10 +84,20 @@ export default async function BillingPage({ searchParams }: PageProps<"/billing"
           invoices={rows}
           methods={methods}
           preselect={pay}
+          preferred={user.preferredPaymentMethod === "card" || user.preferredPaymentMethod === "ach" ? user.preferredPaymentMethod : undefined}
           acceptJs={acceptJsConfig()}
           check={settings.enableCheck ? { payableTo: settings.checkPayableTo, address: settings.checkMailingAddress } : null}
         />
       )}
+
+      <BillingDetails
+        billingAddress={savedBilling.success ? savedBilling.data : null}
+        shippingAddress={shipping.success ? shipping.data : null}
+        loginEmail={user.email}
+        billingEmail={user.billingEmail}
+        preferred={user.preferredPaymentMethod}
+        methods={usable.map((m) => ({ value: m, label: m === "terms" && terms.approved ? `Invoice me (Net ${terms.days})` : PAYMENT_METHOD_LABEL[m] }))}
+      />
     </div>
   );
 }
