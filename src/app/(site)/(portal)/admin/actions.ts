@@ -9,6 +9,8 @@ import { appUrl, resendLoggedEmail, sendEmail, type EmailMessage } from "@/lib/e
 import { accessDenied, adminInvite, setupLinkResent, twoFactorDisabled, welcomeApproved } from "@/lib/email-templates";
 import { errorMessage } from "@/lib/errors";
 import { releaseIfPaid } from "@/lib/orders";
+import { cancelPortalOrder } from "@/lib/cancel-order";
+import { redirect } from "next/navigation";
 import { createWooOrder } from "@/lib/woo/orders";
 import { isStoreKey, storeName } from "@/lib/woo/stores";
 import { syncStore } from "@/lib/woo/sync";
@@ -193,6 +195,25 @@ export async function markCheckReceived(form: FormData) {
     await releaseIfPaid(p.orderId);
   }
   revalidatePath(`/admin/orders/${p?.orderId}`);
+}
+
+/**
+ * Cancel an order: void its payments in Authorize.net, cancel each brand's WooCommerce order
+ * and mark it cancelled. Moves money, so super admins only. The result shows on the order page.
+ */
+export async function cancelOrder(form: FormData) {
+  const admin = await requireAdmin();
+  if (admin.role !== "super_admin") return;
+  const orderId = String(form.get("orderId") ?? "");
+  if (!/^[0-9a-f-]{36}$/i.test(orderId)) return;
+  const r = await cancelPortalOrder(orderId, { alreadyRefunded: form.get("alreadyRefunded") === "on", by: admin.email });
+  await audit(admin, "order.cancel", `order:${orderId}`, { ok: r.ok, done: r.done, problems: r.problems });
+  revalidatePath(`/admin/orders/${orderId}`);
+  revalidatePath("/orders");
+  const q = new URLSearchParams();
+  r.done.forEach((d) => q.append("done", d));
+  r.problems.forEach((p) => q.append("problem", p));
+  redirect(`/admin/orders/${orderId}?${q}`);
 }
 
 /** Retry sending one brand's part of an order to WooCommerce (after a failure at checkout). */

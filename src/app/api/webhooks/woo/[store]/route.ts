@@ -5,6 +5,7 @@ import { getStore, isStoreKey, type StoreKey } from "@/lib/woo/stores";
 import { verifyWooSignature } from "@/lib/woo/webhook";
 import { markWebhook, refreshProduct, removeProduct } from "@/lib/woo/sync";
 import { trackingFromOrder } from "@/lib/woo/orders";
+import { cancelIfAllStoresCancelled } from "@/lib/cancel-order";
 import type { WooOrder } from "@/lib/woo/client";
 
 export const maxDuration = 60;
@@ -76,10 +77,13 @@ async function handle(storeKey: StoreKey, topic: string | null, body: Record<str
     // If this is one of our portal orders, mirror its status and tracking.
     const isPortal = order.meta_data?.some((m) => m.key === "_dealer_portal_order_id");
     if (isPortal) {
-      await db()
+      const [so] = await db()
         .update(storeOrders)
         .set({ wooStatus: order.status, tracking: trackingFromOrder(order), updatedAt: new Date() })
-        .where(and(eq(storeOrders.store, storeKey), eq(storeOrders.wooOrderId, order.id)));
+        .where(and(eq(storeOrders.store, storeKey), eq(storeOrders.wooOrderId, order.id)))
+        .returning({ orderId: storeOrders.orderId });
+      // Cancelled in WooCommerce: once every brand has cancelled, so is the portal order.
+      if (so && ["cancelled", "refunded", "failed", "trash"].includes(order.status)) await cancelIfAllStoresCancelled(so.orderId);
     }
   }
 }
